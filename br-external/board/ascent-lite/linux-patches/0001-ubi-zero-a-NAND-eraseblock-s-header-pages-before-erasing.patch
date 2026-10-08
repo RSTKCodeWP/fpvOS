@@ -1,0 +1,72 @@
+From: Gee <gehee@users.noreply.github.com>
+Subject: [PATCH] ubi: zero a NAND eraseblock's header pages before erasing it
+
+The stock Caddx Ascent Lite/Lite+ kernel zeroes the first two minimal I/O units of
+a NAND eraseblock (the EC and VID headers) before erasing it, so that a block
+whose erasure was cut short by a power loss cannot keep valid-looking old
+headers. HiSilicon's SDK kernel, which fpvOS builds, lacks this.
+
+Reconstructed from the stock kernel's ubi_io_sync_erase(): the same call
+sequence (__vmalloc, memset, mtd_write, vfree), sizes, flags (GFP_NOFS) and
+messages, in the same place, the !nor_flash branch next to
+nor_erase_prepare(). The stock source is not available.
+---
+--- a/drivers/mtd/ubi/io.c	2026-10-03 23:25:38.500153532 -0400
++++ b/drivers/mtd/ubi/io.c	2026-10-03 23:25:38.510363279 -0400
+@@ -76,6 +76,7 @@
+ #include <linux/crc32.h>
+ #include <linux/err.h>
+ #include <linux/slab.h>
++#include <linux/vmalloc.h>
+ #include "ubi.h"
+ 
+ static int self_check_not_bad(const struct ubi_device *ubi, int pnum);
+@@ -505,6 +506,39 @@
+ }
+ 
+ /**
++ * nand_erase_prepare - prepare a NAND flash physical eraseblock for erasure.
++ * @ubi: UBI device description object
++ * @pnum: physical eraseblock number to prepare
++ *
++ * Zero the first two minimal I/O units of the eraseblock, where the EC and
++ * VID headers live, before it is erased. If power is cut while the erasure is
++ * in progress, the old headers then fail their checks at the next attach,
++ * instead of possibly surviving on a half-erased block. This is the NAND
++ * counterpart of nor_erase_prepare(). Failure is only reported: the erasure
++ * goes ahead either way.
++ *
++ * Recovered from the stock Caddx Ascent Lite/Lite+ kernel (5.10.221, built
++ * 2026-08-14), which does this; HiSilicon's SDK 1.0.2.0 kernel does not.
++ */
++static void nand_erase_prepare(struct ubi_device *ubi, int pnum)
++{
++	int len = 2 * ubi->min_io_size;
++	loff_t addr = (loff_t)pnum * ubi->peb_size;
++	size_t written;
++	void *buf;
++
++	buf = __vmalloc(len, GFP_NOFS);
++	if (!buf) {
++		ubi_err(ubi, "cannot allocate memory to nand_erase_prepare");
++		return;
++	}
++	memset(buf, 0, len);
++	if (mtd_write(ubi->mtd, addr, len, &written, buf))
++		ubi_err(ubi, "nand_erase_prepare write err");
++	vfree(buf);
++}
++
++/**
+  * ubi_io_sync_erase - synchronously erase a physical eraseblock.
+  * @ubi: UBI device description object
+  * @pnum: physical eraseblock number to erase
+@@ -539,6 +573,8 @@
+ 		err = nor_erase_prepare(ubi, pnum);
+ 		if (err)
+ 			return err;
++	} else {
++		nand_erase_prepare(ubi, pnum);
+ 	}
+ 
+ 	if (torture) {

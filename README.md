@@ -57,17 +57,24 @@ any locked firmware will ever bother to.
 <br><sub>Idle screen, then the canopy HUD sweeping in as the aircraft links up — recorded on the goggle with screen DVR.</sub>
 </div>
 
-kestrel flies now on real hardware against any stock Ascent compatible air unit:
+fpvOS flies today on the Caddx Ascent VRX Pro, with a stock Caddx Ascent air
+unit or one running fpvOS's own air firmware ([what each gives you](#compatibility)):
 
-- **AR8030 digital link** — association, telemetry, live link stats
-- **H.264 / H.265 decode** on the Rockchip VPU, low-latency path
-- **Canopy HUD** — a reactive attitude/instrument display driven from live OSD + link data
+- **An open radio stack** — the AR8030 driven by [ar_libre](https://github.com/gehee/ar_libre),
+  our own driver and client library, in place of Artosyn's driver and daemon:
+  binding, channels, power, live link stats
+- **Low-latency video** — H.264 / H.265 on the Rockchip VPU, on Linux 6.12;
+  each picture decoded as its slices arrive, its top half on screen before
+  its bottom half has arrived
+- **Canopy HUD** — the instrument display, the Betaflight OSD, standby/arm
+  state, signal-lock and idle animations
+- **Settings in the canopy** — camera, video, radio, HUD, display and DVR
+  settings, a channel page with your country's rules, all from the goggle buttons
+- **Gallery and DVR** — record the FPV feed or the whole screen; browse, play
+  and delete recordings on the goggle
+- **Stats screen** — latency per stage, frame pacing, the link and temperatures
 - **Themes** — five colour themes that re-hue the whole interface, switched live from the menu ([more below](#themes))
-- **DVR** — onboard recording of the FPV feed or the screen experience.
-- **On-screen menu** — camera, link, and display settings, driven from the goggle buttons
-- **Betaflight OSD** overlay, standby/arm state detection, signal-lock and idle animations
-- **Demo mode** — the whole HUD driven by a simulated flight, no aircraft needed
-- **Wifi AP** share your live view with any spectator connected to the vrx wifi, play and manage your DVR recordings.
+- **WiFi AP** — share your live view with any spectator connected to the goggle's WiFi, play and manage your DVR recordings
 
 <div align="center">
 <img src="assets/canopy-panels-arming.webp" alt="The canopy HUD's left and right panels as the quad arms" width="720">
@@ -88,9 +95,9 @@ goggle *can be*:
   and it leaves real headroom: shaders, depth, live gauges, effects a
   CPU-drawn overlay could never afford.
 - **A reactive HUD that flies with the aircraft.** The canopy banks and shifts
-  with attitude, live from the flight controller's OSD feed, with the
-  reactivity dialable. The instrument moves with the horizon instead of sitting
-  flat on the glass.
+  with the aircraft's movement — from the camera's own IMU, or the flight
+  controller's gyro — with the reactivity dialable. The instrument moves with
+  the aircraft instead of sitting flat on the glass.
 - **DVR done right — two ways.** *Raw* recording muxes the exact H.264/H.265
   bitstream off the link straight to MP4: a pixel-perfect capture of what the
   air unit sent, no re-encode, no quality loss, near-zero CPU. *Screen*
@@ -102,12 +109,11 @@ goggle *can be*:
   recording, the on-goggle menus — all present, so switching costs you nothing
   and opens everything. Anything stock can do, fpvOS should do; everything
   after that is upside.
-- **It doesn't have to stop at the goggle.** The same open approach reaches the
-  **air unit** in the future — the VTX runs the same Artosyn baseband, and
-  fpvOS could drive what it sends: resolution and mode, link parameters,
-  power, the camera pipeline. An open ground *and* air stack means the whole
-  video link becomes something the community tunes end to end, not a sealed
-  pair.
+- **It doesn't stop at the goggle.** fpvOS also runs on the **air unit**:
+  [kestrel-air](https://github.com/gehee/kestrel-air) replaces the stock air
+  app on the Ascent Lite and Lite+, on the same open radio stack. The camera
+  pipeline, the encoder and the link are open code too, so the whole video
+  link becomes something the community tunes end to end, not a sealed pair.
 
 The goggle has always had the horsepower for this. It was just locked up.
 
@@ -155,11 +161,38 @@ highest-voted requests get implemented.**
 
 | Device | SoC | Link | Status |
 |---|---|---|---|
-| **Caddx Ascent VRX Pro** | Rockchip RK3568 | Artosyn AR8030 | ✅ **Supported — flies today** |
+| **Caddx Ascent VRX Pro** | Rockchip RK3568 | Artosyn AR8030 | ✅ **Supported — flies today** (boots from the SD card) |
 
-fpvOS links to the **Caddx Ascent Lite(+) air unit** for now. Same-silicon does not
-mean same protocol — other vendors' AR8030 air units use their own link setup
-and don't pair with this stack today.
+**Air side:**
+
+| Air unit | Camera | Stock firmware | fpvOS air firmware |
+|---|---|---|---|
+| **Caddx Ascent Lite** | CV2004, with an IMU | ✅ links to fpvOS | ✅ Supported |
+| **Caddx Ascent Lite+** | OS02K10, no IMU | ✅ links to fpvOS | ✅ Supported |
+
+The fpvOS air firmware is flashed like a Caddx update — with the Caddx PC tool
+or the [fpvOS Flasher](https://github.com/gehee/fpvOS_flasher) in the browser —
+and flashing the stock update brings the unit back. Same-silicon does not mean
+same protocol: other vendors' AR8030 air units use their own link setup and
+don't pair with this stack today.
+
+**What you get with each air unit:**
+
+| | Stock air unit | fpvOS air unit |
+|---|---|---|
+| Video, binding, channels, power, link stats | ✅ | ✅ |
+| Camera settings (EV, white balance, 3D DNR, rotation, video modes) | ✅ | ✅ |
+| Canopy HUD, Betaflight OSD, themes, DVR, gallery, WiFi AP | ✅ | ✅ |
+| Pictures decoded as their slices arrive | ✅ | ✅ |
+| Latency on the HUD | estimated for the air side | measured end to end, capture to screen, by the radio's clock |
+| Stats screen | goggle-side stages | every stage, the air unit's encoder and radio included |
+| Intra refresh (no keyframe bursts) | — | ✅ |
+| Reactive HUD | — | ✅ from the camera's IMU (Lite) or the flight controller's gyro (Lite+) |
+| Flight controller telemetry (battery, altitude, GPS, flight modes) polled over MSP | — | ✅ |
+| Caps on the video bitrate and the link bandwidth | — | ✅ |
+| AIR UNIT › INFO: what the air unit runs and can do | stock's device info | ✅ with the fpvOS version and its capabilities |
+| Recovers by itself from a radio chip reset | as stock | ✅ (restarts) |
+| SSH into the air unit over USB (`root` / `root`) | — | ✅ |
 
 One goggle and one air unit, fully working, is how this starts. More hardware
 is exactly the kind of thing a growing community brings — if you have other
@@ -198,33 +231,47 @@ scripts/extract-vendor.py
 
 # Build the rootfs and assemble the flashable card:
 ./build.sh
+
+# The air unit's image (Ascent Lite and Lite+):
+./build.sh air
 ```
 
 Out comes `sdcard.img.xz` (and the raw `sdcard.img`). Flash it with
-[balenaEtcher](https://etcher.balena.io/), boot it, fly.
+[balenaEtcher](https://etcher.balena.io/), boot it, fly. The air image is
+`output-air/images/Ascent_H_Sky_18_21_10.img`: flash it with the Caddx PC tool or
+the fpvOS Flasher, under that file name, which both check.
 
 Full walkthrough — flashing, recovery, first boot, the boot-chain details —
 lives in **[docs/BUILD.md](docs/BUILD.md)** and **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 ## Why bring-your-own-firmware
 
-The AR8030 baseband stack is proprietary. fpvOS is built *around* it, cleanly:
-not one line of vendor code lives in this repo, and the interface to it is
-declared from observed behavior in kestrel's
-[`artosyn/bb_client.h`](https://github.com/gehee/kestrel-gnd/blob/main/artosyn/bb_client.h),
-not copied from an SDK. That keeps the project legally clean, keeps *your*
-firmware *yours*, and means everything here is genuinely free software you can
-read end to end.
+The AR8030 runs Artosyn's own firmware, and the goggle and air unit need a few
+vendor files (that firmware, the camera SDK's libraries). fpvOS is built
+*around* them, cleanly: not one line of vendor code lives in these repos.
+`extract-vendor.py` takes the goggle's files from Caddx's own published
+firmware, and everything on the host side — the radio driver and client
+library ([ar_libre](https://github.com/gehee/ar_libre)), written from observed
+behaviour, and the applications — is ours. That keeps the project legally
+clean, keeps *your* firmware *yours*, and means everything here is genuinely
+free software you can read end to end.
 
 ## Repository layout
 
-This repo builds the image. The ground application itself, **kestrel**, lives
-in its own repo ([`gehee/kestrel-gnd`](https://github.com/gehee/kestrel-gnd))
-and is pulled in as a Buildroot package.
+This repo builds the images. The applications and the radio stack live in
+their own repos and are pulled in as Buildroot packages, each pinned to a
+commit:
+
+| Repo | What |
+|---|---|
+| [`gehee/kestrel-gnd`](https://github.com/gehee/kestrel-gnd) | **kestrel**, the goggle application: video, HUD, menus, DVR |
+| [`gehee/kestrel-air`](https://github.com/gehee/kestrel-air) | the air unit application: camera, encoder, link |
+| [`gehee/ar_libre`](https://github.com/gehee/ar_libre) | the AR8030 host stack on both ends: `arlink.ko` and the client library |
+| [`gehee/fpvOS_flasher`](https://github.com/gehee/fpvOS_flasher) | the air unit flasher in the browser |
 
 | Path | What |
 |---|---|
-| [`br-external/`](br-external/) | Buildroot external tree: defconfig, the kestrel package (fetches kestrel), rootfs overlay |
+| [`br-external/`](br-external/) | Buildroot external tree: the goggle's and the air unit's defconfigs, packages, rootfs overlays |
 | [`boot/`](boot/) | SD-image assembly and the boot-chain recipes |
 | [`scripts/`](scripts/) | `extract-vendor.py` — fetches vendor blobs from your own firmware |
 | [`docs/`](docs/) | Build, install, and architecture guides |

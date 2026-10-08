@@ -14,7 +14,11 @@ Outputs, into --out, are what boot/mk-sd-image.sh writes onto the card:
   uboot-patched.bin      stock U-Boot with three board hooks stubbed out
   boot-sd3.img           the kernel FIT, re-made with an SD-card device tree
   rk3568-pro-patched.dtb the device tree for the p1 fallback (extlinux)
-  Image                  the stock kernel, decompressed, for the same fallback
+  Image                  the kernel, decompressed, for the same fallback
+
+The kernel is the stock one unless --kernel names an Image built from source
+(Buildroot's linux package): that is then LZ4-framed the way the stock kernel
+is and goes into both places instead.
 
 Nothing here is copied from Caddx beyond what the user's own download holds;
 everything fpvOS changes is below, in the open.
@@ -134,7 +138,157 @@ def patch_uboot(img):
 
 # ---- device tree ------------------------------------------------------------
 
-def dts_edit(dts, sd_speed):
+def gpu_edit(dts):
+    """The GPU node as Panfrost reads it, for a kernel built from source.
+
+    Stock names the node's interrupts GPU/MMU/JOB and its clocks clk_mali and
+    clk_gpu, for Arm's kbase driver. Panfrost looks the interrupts up by the
+    lower-case names and takes its second clock as "bus". kbase copes with
+    both: it tries the upper-case interrupt names first, then the lower-case
+    ones, and takes its clocks by index. So the renamed node serves either
+    driver, and the image can boot with either.
+
+    The frequency table also carries entries for two other chip bins
+    (opp-j-*, opp-m-*), which Rockchip's code filters out by the chip's fuses.
+    Panfrost reads the table generically, and opp-m-800000000 clashes with
+    opp-800000000 (same frequency, different voltage), which fails the whole
+    table. They are dropped, leaving the plain entries; the highest of them,
+    800 MHz at 1.0 V, is also the table's maximum voltage.
+
+    The plain entries lose their opp-supported-hw masks too. Rockchip's code
+    supplies the chip's bin to match them against; Panfrost supplies none, and
+    then the kernel's OPP core treats every entry that has a mask as
+    unsupported - "no supported OPPs", and Panfrost fails to probe.
+    """
+    def sub1(pattern, repl, text, what):
+        new, n = re.subn(pattern, repl, text, count=1, flags=re.M)
+        if n != 1:
+            die(f"device tree: could not {what}")
+        return new
+
+    node = re.search(r"^\t(gpu@fde60000) \{\n(.*?)^\t\};", dts, flags=re.M | re.S)
+    if not node:
+        die("device tree: no gpu@fde60000")
+    body = node.group(2)
+    body = sub1(r'^(\s*interrupt-names = )"GPU", "MMU", "JOB";$', r'\1"gpu", "mmu", "job";',
+                body, "rename the GPU interrupts")
+    body = sub1(r'^(\s*clock-names = )"clk_mali", "clk_gpu";$', r'\1"gpu", "bus";',
+                body, "rename the GPU clocks")
+    opp = re.search(r"^\s*operating-points-v2 = <(0x[0-9a-f]+)>;$", body, flags=re.M)
+    if not opp:
+        die("device tree: GPU has no operating-points-v2")
+    dts = dts[:node.start(2)] + body + dts[node.end(2):]
+
+    table = None
+    for t in re.finditer(r"^\t(opp-table[\w-]*) \{\n(.*?)^\t\};", dts, flags=re.M | re.S):
+        if re.search(rf"^\t\tphandle = <{opp.group(1)}>;$", t.group(2), flags=re.M):
+            table = t
+    if not table:
+        die("device tree: no GPU opp table")
+    body, n = re.subn(r"^\t\topp-[jm]-\d+ \{\n.*?^\t\t\};\n\n?", "", table.group(2),
+                      flags=re.M | re.S)
+    if n != 2:
+        die(f"device tree: expected 2 other-bin GPU OPPs, found {n}")
+    body, n = re.subn(r"^\t\t\topp-supported-hw = <[^>]*>;\n", "", body, flags=re.M)
+    if n != 6:
+        die(f"device tree: expected 6 GPU OPP bin masks, found {n}")
+    return dts[:table.start(2)] + body + dts[table.end(2):]
+
+
+def usbphy_clock_edit(dts):
+    """The USB2 PHYs' 480 MHz clocks as Linux 6.10 and later name them.
+
+    Since 6.10 the RK3568 clock driver registers a mux called "usb480m_phy"
+    itself, fed by the two PHYs as "clk_usbphy0_480m" and "clk_usbphy1_480m".
+    The stock (5.10) device tree still gives PHY 0's output the mux's name, so
+    registering it fails with -EEXIST and the PHY - and the USB gadget port
+    behind it - never probes. Rename both outputs, and parent the USB480M
+    clock on the new mux rather than on PHY 0 directly.
+    """
+    def sub1(pattern, repl, text, what):
+        new, n = re.subn(pattern, repl, text, count=1, flags=re.M)
+        if n != 1:
+            die(f"device tree: could not {what}")
+        return new
+
+    cru = re.search(r'^\t(clock-controller@fdd20000) \{\n(.*?)^\t\};', dts, flags=re.M | re.S)
+    ph = cru and re.search(r"^\t\tphandle = <(0x[0-9a-f]+)>;$", cru.group(2), flags=re.M)
+    if not ph or "rockchip,rk3568-cru" not in cru.group(2):
+        die("device tree: no RK3568 CRU phandle")
+    for addr, name, first in (("fe8a0000", "clk_usbphy0_480m", True),
+                              ("fe8b0000", "clk_usbphy1_480m", False)):
+        node = re.search(rf"^\t(usb2-phy@{addr}) \{{\n(.*?)^\t\}};", dts, flags=re.M | re.S)
+        if not node:
+            die(f"device tree: no usb2-phy@{addr}")
+        body = node.group(2)
+        if first:
+            body = sub1(r'^(\t\tclock-output-names = )"usb480m_phy";$', rf'\1"{name}";', body,
+                        "rename PHY 0's clock")
+            body = sub1(r"^(\t\tassigned-clock-parents = )<0x[0-9a-f]+>;$",
+                        rf"\1<{ph.group(1)} 0x0c>;", body,          # USB480M_PHY = 12
+                        "parent USB480M on the usb480m_phy mux")
+        else:
+            body = sub1(r"^(\t\t#clock-cells = <0x00>;\n)", rf'\1\t\tclock-output-names = "{name}";\n',
+                        body, "name PHY 1's clock")
+        dts = dts[:node.start(2)] + body + dts[node.end(2):]
+    return dts
+
+
+def gic_noncoherent_edit(dts):
+    """RK3568's GIC and ITS marked dma-noncoherent, as Linux 6.5 and later want.
+
+    The RK3568 interconnect cannot keep the GIC's ITS tables coherent. Newer
+    kernels learn that from a dma-noncoherent property on the GIC and its ITS
+    (as mainline's rk356x device tree has); without it they treat the tables
+    as shareable, every ITS command times out, and boot stalls for about ten
+    seconds bringing up the four CPUs.
+    """
+    gic = re.search(r"^\t(interrupt-controller@fd400000) \{\n(.*?)^\t\};", dts, flags=re.M | re.S)
+    if not gic or '"arm,gic-v3"' not in gic.group(2):
+        die("device tree: no GICv3 at fd400000")
+    body = gic.group(2)
+    body, n = re.subn(r'^(\t\tcompatible = "arm,gic-v3";\n)', r"\1\t\tdma-noncoherent;\n", body,
+                      count=1, flags=re.M)
+    body, m = re.subn(r'^(\t\t\tcompatible = "arm,gic-v3-its";\n)', r"\1\t\t\tdma-noncoherent;\n",
+                      body, count=1, flags=re.M)
+    if n != 1 or m != 1:
+        die("device tree: could not mark the GIC and its ITS dma-noncoherent")
+    return dts[:gic.start(2)] + body + dts[gic.end(2):]
+
+
+def vop_planes_edit(dts):
+    """A second video layer for the screen: Esmart1 moved from VP1 to VP0.
+
+    The stock tree gives VP0 (the HDMI screen) Cluster0, Esmart0 and Smart0,
+    and VP1 (wired to nothing on this board) Cluster1, Esmart1 and Smart1,
+    with disable-win-move pinning them there. Of VP0's, only Esmart0 takes
+    linear NV12 - the decoder's output - so the picture can only ever be one
+    layer. With Esmart1 on VP0 as well, kestrel shows the top and the bottom
+    of the picture on layers of their own, each half put up as soon as it is
+    decoded, independent of the other. VP1 keeps Cluster1 and Smart1, with
+    Smart1 as its primary.
+    """
+    vop = re.search(r"^\t(vop@fe040000) \{\n(.*?)^\t\};", dts, flags=re.M | re.S)
+    if not vop:
+        die("device tree: no vop@fe040000")
+    body = vop.group(2)
+    for old, new, what in (
+            (r"(rockchip,plane-mask = )<0x15>;", r"\1<0x1d>;", "give VP0 Esmart1"),
+            (r"(rockchip,plane-mask = )<0x2a>;", r"\1<0x22>;", "take Esmart1 from VP1"),
+            (r"(rockchip,primary-plane = )<0x03>;", r"\1<0x05>;", "make Smart1 VP1's primary")):
+        body, n = re.subn(old, new, body, count=1)
+        if n != 1:
+            die(f"device tree: could not {what}")
+    return dts[:vop.start(2)] + body + dts[vop.end(2):]
+
+
+def kernel_version(image):
+    """(major, minor) from the banner in an uncompressed arm64 Image."""
+    m = re.search(rb"Linux version (\d+)\.(\d+)", open(image, "rb").read())
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def dts_edit(dts, sd_speed, gpu=False, usbclk=False):
     """The fpvOS edits, applied to decompiled stock source."""
     def sub1(pattern, repl, text, what):
         new, n = re.subn(pattern, repl, text, count=1, flags=re.M)
@@ -161,16 +315,22 @@ def dts_edit(dts, sd_speed):
                    r"\1\2", dts, "set / compatible")
         dts = sub1(r'^(\tmodel = )"pro-rk3568";$', r'\1"rk3568-vrxpro";', dts, "set / model")
         dts = sub1(r'^\t\trpdzkj = "/rpdzkj_config";\n', "", dts, "drop the rpdzkj alias")
+    dts = vop_planes_edit(dts)
+    if gpu:
+        dts = gpu_edit(dts)
+    if usbclk:
+        dts = usbphy_clock_edit(dts)
+        dts = gic_noncoherent_edit(dts)
     return dts
 
 
-def dtb_build(dtb, dtc, tmp, sd_speed):
+def dtb_build(dtb, dtc, tmp, sd_speed, gpu=False, usbclk=False):
     src = os.path.join(tmp, "in.dtb")
     open(src, "wb").write(dtb)
     dts = subprocess.run([dtc, "-q", "-I", "dtb", "-O", "dts", src],
                          check=True, capture_output=True, text=True).stdout
     edited = os.path.join(tmp, "out.dts")
-    open(edited, "w").write(dts_edit(dts, sd_speed))
+    open(edited, "w").write(dts_edit(dts, sd_speed, gpu, usbclk))
     return subprocess.run([dtc, "-q", "-I", "dts", "-O", "dtb", edited],
                           check=True, capture_output=True).stdout
 
@@ -266,6 +426,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--dtc", default="dtc")
     ap.add_argument("--lz4", default="lz4")
+    ap.add_argument("--kernel", help="an arm64 Image to use instead of the stock kernel")
     a = ap.parse_args()
 
     uboot = open(os.path.join(a.stock, "uboot.img"), "rb").read()
@@ -282,8 +443,28 @@ def main():
                 die(f"boot.img: image '{name}' does not match its hash")
             parts[name] = data
 
-        live_dtb = dtb_build(parts["fdt"], a.dtc, tmp, sd_speed=False)
-        p1_dtb = dtb_build(parts["fdt"], a.dtc, tmp, sd_speed=True)
+        if a.kernel:
+            # Same shape as the stock kernel: one LZ4 frame, then the
+            # decompressed size as 4 bytes little-endian for the kernel's own
+            # decompressor.
+            raw = open(a.kernel, "rb").read()
+            frame = subprocess.run([a.lz4, "-9", "-c", "-q", a.kernel],
+                                   check=True, capture_output=True).stdout
+            parts["kernel"] = frame + struct.pack("<I", len(raw))
+
+        # A kernel built from source may run Panfrost: rename the GPU node's
+        # interrupts and clocks for it (see gpu_edit).
+        gpu = bool(a.kernel)
+        # And a 6.10+ kernel needs the USB2 PHY clocks renamed (usbphy_clock_edit)
+        # and the GIC marked non-coherent (gic_noncoherent_edit).
+        # Without a version those edits would be skipped silently, and a 6.10+
+        # kernel would boot with no USB gadget and a ten-second stall.
+        ver = kernel_version(a.kernel) if a.kernel else None
+        if a.kernel and not ver:
+            die(f"{a.kernel}: no 'Linux version' banner - is it an uncompressed arm64 Image?")
+        usbclk = bool(ver and ver >= (6, 10))
+        live_dtb = dtb_build(parts["fdt"], a.dtc, tmp, sd_speed=False, gpu=gpu, usbclk=usbclk)
+        p1_dtb = dtb_build(parts["fdt"], a.dtc, tmp, sd_speed=True, gpu=gpu, usbclk=usbclk)
         open(os.path.join(a.out, "rk3568-pro-patched.dtb"), "wb").write(p1_dtb)
 
         # boot-sd3.img: the same kernel, the SD device tree in both places

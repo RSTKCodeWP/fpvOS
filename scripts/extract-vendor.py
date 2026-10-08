@@ -61,6 +61,10 @@ FIRMWARE_URL    = os.environ.get(
 FIRMWARE_SHA256 = os.environ.get("FPVOS_FIRMWARE_SHA256", "")   # optional integrity pin
 # Which image inside the release zip carries the goggle rootfs (the vendor blobs).
 FIRMWARE_IMG_GLOB = "Ascent_VRX_Pro_*.img"
+# The same zip carries the air unit's image: the Ascent Lite and Lite+ VTX (H_Sky, board
+# 3). `./build.sh air` builds on it, and keeps the parts the Caddx PC tool needs.
+AIR_IMG_GLOB = "Ascent_H_Sky_*.img"
+AIR_STOCK_DIR = "stock/air"
 CACHE_DIR = pathlib.Path(os.environ.get(
     "FPVOS_CACHE", pathlib.Path.home() / ".cache" / "fpvos"))
 
@@ -269,10 +273,9 @@ def _http_download(url: str, dest: pathlib.Path) -> None:
     tmp.rename(dest)
 
 
-def ensure_firmware() -> pathlib.Path:
-    """Return the goggle rootfs image, downloading+caching the stock Caddx
-    release on first use so the user never fetches firmware by hand. The release
-    is a zip; the VRX Pro image is extracted from it into the cache."""
+def release_download() -> pathlib.Path:
+    """Return the cached stock Caddx release (a zip, or a raw image), downloading
+    it on first use so the user never fetches firmware by hand."""
     if not FIRMWARE_URL:
         sys.exit("No firmware URL configured. Set FPVOS_FIRMWARE_URL, or use "
                  "--from-ota <file> / --from-device root@<ip>.")
@@ -288,21 +291,56 @@ def ensure_firmware() -> pathlib.Path:
         print(f"cached: {dl}")
     else:
         print(f"using cached download: {dl}")
+    return dl
 
-    if not zipfile.is_zipfile(dl):
-        return dl                              # already a raw image
+
+def release_member(dl: pathlib.Path, glob: str) -> pathlib.Path | None:
+    """Extract the release zip's member matching glob into the cache."""
+    import fnmatch
     with zipfile.ZipFile(dl) as z:
-        import fnmatch
         member = next((n for n in z.namelist()
-                       if fnmatch.fnmatch(pathlib.PurePosixPath(n).name, FIRMWARE_IMG_GLOB)), None)
+                       if fnmatch.fnmatch(pathlib.PurePosixPath(n).name, glob)), None)
         if not member:
-            sys.exit(f"no {FIRMWARE_IMG_GLOB} inside the release zip")
+            return None
         img = CACHE_DIR / pathlib.PurePosixPath(member).name
         if not img.is_file():
             print(f"extracting {pathlib.PurePosixPath(member).name} from the release zip")
             with z.open(member) as src, open(img, "wb") as f:
                 shutil.copyfileobj(src, f, 1 << 20)
         return img
+
+
+def ensure_firmware(dl: pathlib.Path) -> pathlib.Path:
+    """Return the goggle image: the release itself when it is a raw image, else
+    the VRX Pro image out of the zip."""
+    if not zipfile.is_zipfile(dl):
+        return dl                              # already a raw image
+    img = release_member(dl, FIRMWARE_IMG_GLOB)
+    if not img:
+        sys.exit(f"no {FIRMWARE_IMG_GLOB} inside the release zip")
+    return img
+
+
+def stock_air_image(dl: pathlib.Path) -> bool:
+    """Save the stock air-unit image, unmodified, under vendor/stock/air/.
+    It is a Caddx ASW container: magic "ASW\\0", then the board id (3 = H_Sky)."""
+    if not zipfile.is_zipfile(dl):
+        return False
+    img = release_member(dl, AIR_IMG_GLOB)
+    if not img:
+        print(f"  no {AIR_IMG_GLOB} inside the release zip: no air-unit build")
+        return False
+    with open(img, "rb") as f:
+        head = f.read(8)
+    if head[:4] != b"ASW\0" or struct.unpack_from("<I", head, 4)[0] != 3:
+        sys.exit(f"{img.name}: not an H_Sky ASW image")
+    out = VENDOR / AIR_STOCK_DIR
+    for old in out.glob("*.img"):
+        old.unlink()
+    out.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(img, out / img.name)
+    print(f"air unit: {AIR_STOCK_DIR}/{img.name}")
+    return True
 
 
 def main() -> None:
@@ -319,7 +357,9 @@ def main() -> None:
     elif a.from_ota:
         from_ota(a.from_ota)
     else:                        # default: download + cache + extract
-        from_ota(ensure_firmware())
+        dl = release_download()
+        stock_air_image(dl)
+        from_ota(ensure_firmware(dl))
 
 
 if __name__ == "__main__":

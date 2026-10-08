@@ -1,0 +1,3 @@
+# Locally computed: the archive as uploaded to the gist (each library in it is
+# checked against its SHA256SUMS)
+sha256  37ca250bdd810b6ff17d5f1d552156ef8855994b8258f0788e77393694feb734  ascent-lite-libs-2063a02.tar.gz

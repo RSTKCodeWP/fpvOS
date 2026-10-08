@@ -3,7 +3,8 @@
 #
 # The VRX Pro carries a Realtek RTL8188FU-family USB WiFi chip (0bda:f179),
 # powered by GPIO 105 and off unless something turns it on. Its driver is the
-# stock firmware's RTL8189FU.ko, extracted like the other vendor blobs.
+# kernel's own rtl8xxxu, which has access-point mode for the RTL8188F from 6.12
+# (the stock firmware's binary RTL8189FU.ko only loads into the stock kernel).
 #
 # kestrel's SYSTEM > WiFi AP setting runs this - at startup when the setting is
 # on, and whenever it is toggled. Nothing else starts it, and it is off by
@@ -24,8 +25,7 @@
 # driver reports no survey data - so the choice is made from the scan instead.
 
 GPIO=105
-MOD=/lib/modules/RTL8189FU.ko
-MODNAME=RTL8189FU
+MOD=rtl8xxxu
 IDENT=/etc/fpvos/wifi-ap
 RUN=/run/fpvos-wifi
 ADDR=192.168.4.1
@@ -87,12 +87,11 @@ pick_channel() {
 
 start() {
     if running; then log "already running"; return 0; fi
-    [ -f "$MOD" ] || { log "no driver at $MOD - re-run scripts/extract-vendor.py"; return 1; }
     command -v hostapd >/dev/null || { log "hostapd missing from this image"; return 1; }
     mkdir -p "$RUN"
 
     power 1
-    grep -q "^$MODNAME " /proc/modules || insmod "$MOD" || { log "insmod failed"; power 0; return 1; }
+    grep -q "^$MOD " /proc/modules || modprobe $MOD || { log "modprobe $MOD failed"; power 0; return 1; }
     i=0
     while [ ! -e /sys/class/net/wlan0 ] && [ $i -lt 50 ]; do usleep 100000; i=$((i + 1)); done
     [ -e /sys/class/net/wlan0 ] || { log "wlan0 never appeared"; stop; return 1; }
@@ -155,7 +154,7 @@ stop() {
     i=0
     while [ -n "$(our_udhcpd)" ] && [ $i -lt 10 ]; do usleep 100000; i=$((i + 1)); done
     [ -e /sys/class/net/wlan0 ] && ifconfig wlan0 down
-    grep -q "^$MODNAME " /proc/modules && rmmod $MODNAME
+    grep -q "^$MOD " /proc/modules && rmmod $MOD
     power 0
     rm -f "$RUN/state"
     log "off"

@@ -1,0 +1,11 @@
+config BR2_PACKAGE_KESTREL_AIR
+	bool "kestrel-air"
+	depends on BR2_arm
+	select BR2_PACKAGE_HI3516CV610_SDK
+	select BR2_PACKAGE_AR_LIBRE
+	help
+	  kestrel-air: the fpvOS air-unit application for the Caddx
+	  Ascent (camera, encoder, AR8030 radio through ar_libre). Its
+	  sensor drivers come with hi3516cv610-sdk. Installed into
+	  the app volume, /usrdata/fpv/air. GPL-3.0, with a permission
+	  to combine it with the SDK's libraries.

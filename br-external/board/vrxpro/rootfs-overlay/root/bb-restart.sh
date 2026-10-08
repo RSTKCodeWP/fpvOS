@@ -1,42 +1,36 @@
 #!/bin/sh
-# Restart the AR8030 baseband daemon.
+# Restart the AR8030 baseband by hand, with kestrel-gnd stopped around it.
 #
-# Use this when kestrel-gnd comes up with no video and the log stops after
-#     ar8030: subscribe event 12 -> 0
-# with no "video socket open" line. That is bb_socket_open() hanging: it sends
-# the open request to the daemon and never returns if no reply comes back -
-# observed blocking indefinitely, with no timeout. Restarting the daemon resets
-# the state it is waiting on.
+# kestrel-gnd restarts the baseband itself when it cannot connect, so this is
+# for when you want it done now: a stuck link, or after changing the baseband
+# profile (/usrdata/bb_profile). kestrel-gnd is stopped through S70kestrel - it
+# is supervised, and killing the process alone just starts it again, holding
+# /dev/arlinkN so arlink cannot be unloaded - and started again once the radio
+# is back.
 #
-# The wait matters. Coming back too early looks exactly like the restart did not
-# work - that misled us more than once. Default 75s; override with an argument:
+# Waits up to 60s for the radio; override with an argument:
 #     /root/bb-restart.sh 90
 
-WAIT="${1:-75}"
+WAIT="${1:-60}"
 
-echo "bb-restart: stopping kestrel-gnd if running"
-if pidof kestrel-gnd >/dev/null 2>&1; then
-    kill -INT "$(pidof kestrel-gnd)" 2>/dev/null
-    sleep 6
-    # It may be parked inside the vendor client library and unkillable
-    # politely; force it.
-    pidof kestrel-gnd >/dev/null 2>&1 && kill -9 "$(pidof kestrel-gnd)" 2>/dev/null
-fi
+echo "bb-restart: stopping kestrel-gnd"
+/etc/init.d/S70kestrel stop
 
 echo "bb-restart: restarting baseband"
 /etc/init.d/S60ar8030 restart >/dev/null 2>&1
 
 i=0
-while [ "$i" -lt "$WAIT" ]; do
-    sleep 5
-    i=$((i + 5))
-    printf "\rbb-restart: settling %ss/%ss" "$i" "$WAIT"
+while [ "$i" -lt "$WAIT" ] && ! ls /dev/arlink[0-9]* >/dev/null 2>&1; do
+    sleep 1
+    i=$((i + 1))
+    printf "\rbb-restart: waiting for the radio %ss/%ss" "$i" "$WAIT"
 done
 printf "\n"
 
-if pidof daemon >/dev/null 2>&1; then
-    echo "bb-restart: daemon up (pid $(pidof daemon)) - start kestrel-gnd now"
+if ls /dev/arlink[0-9]* >/dev/null 2>&1; then
+    echo "bb-restart: $(ls /dev/arlink[0-9]* | head -1) up after ${i}s - starting kestrel-gnd"
 else
-    echo "bb-restart: WARNING daemon is not running"
-    exit 1
+    echo "bb-restart: WARNING no /dev/arlinkN after ${WAIT}s (see /var/log/ar8030-boot.log);" \
+         "starting kestrel-gnd anyway, it retries the baseband itself"
 fi
+/etc/init.d/S70kestrel start

@@ -23,8 +23,15 @@ FPVOS_VENDOR_LIBS_VERSION = 1.0
 FPVOS_VENDOR_LIBS_SITE = $(BR2_EXTERNAL_FPVOS_PATH)/../vendor/rootfs/usr/lib
 FPVOS_VENDOR_LIBS_SITE_METHOD = local
 FPVOS_VENDOR_LIBS_INSTALL_STAGING = YES
+# Binaries from the user's own stock firmware download: listed in legal-info's
+# manifest, never copied into its sources.
+FPVOS_VENDOR_LIBS_LICENSE = PROPRIETARY
+FPVOS_VENDOR_LIBS_REDISTRIBUTE = NO
+
+ifeq ($(BR2_PACKAGE_ROCKCHIP_MALI),y)
 # Must land after rockchip-mali so our G52 libmali wins.
 FPVOS_VENDOR_LIBS_DEPENDENCIES = rockchip-mali
+endif
 
 # Remove the destination first: these paths are symlinks created by
 # rockchip-mali, and copying onto a symlink writes THROUGH it, silently
@@ -38,12 +45,23 @@ FPVOS_VENDOR_LIBS_DEPENDENCIES = rockchip-mali
 #                     Drop this exclusion to fall back to the vendor blob if a
 #                     from-source MPP regresses hardware decode.
 FPVOS_VENDOR_LIBS_SKIP = librockchip_mpp
+#   libar8030_client - built by the ar-libre package, which also replaces the
+#                      daemon the vendor library needs.
+ifeq ($(BR2_PACKAGE_AR_LIBRE),y)
+FPVOS_VENDOR_LIBS_SKIP += libar8030_client
+endif
+
+# With Mesa (Panfrost) providing EGL/GLES/GBM, libmali is not installed at
+# all: the kernel has no kbase driver for it to talk to.
+ifeq ($(BR2_PACKAGE_MESA3D),y)
+FPVOS_VENDOR_LIBS_SKIP += libmali
+endif
 
 define FPVOS_VENDOR_LIBS_INSTALL_CMDS
 	for f in $(@D)/*.so*; do \
 		[ -e "$$f" ] || continue; \
 		b=$$(basename $$f); \
-		case $$b in $(FPVOS_VENDOR_LIBS_SKIP)*) continue ;; esac; \
+		case $$b in $(subst $(space),*|,$(strip $(FPVOS_VENDOR_LIBS_SKIP)))*) continue ;; esac; \
 		rm -f $(1)/usr/lib/$$b; \
 		$(INSTALL) -D -m 0755 $$f $(1)/usr/lib/$$b; \
 	done; \

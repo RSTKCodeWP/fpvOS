@@ -1,10 +1,14 @@
 # Vendor blobs — extracted from your own device firmware, never committed.
-/vendor/rootfs/
-/vendor/boot/
-/vendor/stock/
+# No trailing slash: in a second worktree they are usually symlinks to the
+# first one's, and a "dir/" pattern does not match a symlink.
+/vendor/rootfs
+/vendor/boot
+/vendor/stock
 
 # Buildroot's build output (the checkout itself is a submodule, tracked).
 /buildroot/output/
+/output-air/
+/output-air-*/
 /br-external/board/*/rootfs-overlay/**/output/
 
 # Build artifacts

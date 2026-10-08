@@ -1,0 +1,20 @@
+config BR2_PACKAGE_AR_LIBRE
+	bool "ar-libre"
+	depends on BR2_LINUX_KERNEL
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  fpvOS's own host stack for the AR8030 radio, replacing Artosyn's
+	  kernel driver, daemon and client library: arlink.ko uploads the
+	  baseband firmware and gives /dev/arlink0, and
+	  libar8030_client.so is the client API, in-process.
+
+	  On the goggle (kestrel) they go into the root filesystem and
+	  bb_only.sh brings the radio up without a daemon. On the air unit
+	  (kestrel-air) both go into the air unit's app volume.
+
+	  Reverse-engineered from stock devices; GPL-2.0+.
+
+	  https://github.com/gehee/ar_libre
+
+comment "ar-libre needs a Linux kernel and a toolchain with threads"
+	depends on !BR2_LINUX_KERNEL || !BR2_TOOLCHAIN_HAS_THREADS

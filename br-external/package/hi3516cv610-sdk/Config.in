@@ -1,0 +1,8 @@
+config BR2_PACKAGE_HI3516CV610_SDK
+	bool "hi3516cv610-sdk"
+	depends on BR2_arm
+	help
+	  The userspace libraries kestrel-air runs with on the unit: the
+	  Hi3516CV610 MPP V1.0.2.0 B051 MPI, ISP and ISP-algorithm
+	  libraries, and the camera's sensor drivers (CV2004, OS02K10).
+	  Prebuilt, in one archive pinned by commit and checked by hash.

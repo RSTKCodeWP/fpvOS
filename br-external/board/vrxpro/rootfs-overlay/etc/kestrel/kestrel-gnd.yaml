@@ -79,3 +79,15 @@ clock_mode: 2
 
 bb_watchdog: 0
 demo_mode: 0
+
+# Low-latency video, each part on by default; 0 turns it off for good (the
+# /tmp/kestrel-*-off files do it until the next reboot):
+#   stream_decode: a picture goes to the decoder with its first slice and
+#                  takes the rest as it arrives
+#   early_present: a picture goes up before its bottom is decoded, when the
+#                  scan-out will not reach the bottom before it is
+#   video_halves:  each half of a picture goes up on its own (two planes),
+#                  on a screen faster than the video, not while recording
+stream_decode: 1
+early_present: 1
+video_halves: 1

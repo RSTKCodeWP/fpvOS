@@ -1,0 +1,14 @@
+# Applied on top of the SDK's hi3516cv610_defconfig, to match the stock Ascent kernel
+# (linux.defconfig already has them; kept for why they are there).
+# Each line is here because ascent-kernel-check.py showed a difference.
+
+# The stock kernel has the firmware loader built in: artosyn_sdio.ko calls
+# request_firmware() to upload the AR8030 firmware. The SDK builds it as a module.
+CONFIG_FW_LOADER=y
+
+# Found by comparing the text in the two kernel images (these export nothing,
+# so the symbol check cannot see them): stock has exFAT and USB HID force
+# feedback built in, and lacks the NetChip TurboCONNECT USB network driver.
+CONFIG_EXFAT_FS=y
+CONFIG_HID_PID=y
+# CONFIG_USB_NET_NET1080 is not set

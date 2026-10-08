@@ -1,10 +1,11 @@
 config BR2_PACKAGE_FPVOS_VENDOR_LIBS
 	bool "fpvos-vendor-libs"
-	depends on BR2_PACKAGE_ROCKCHIP_MALI
+	depends on BR2_PACKAGE_ROCKCHIP_MALI || BR2_PACKAGE_MESA3D
 	help
 	  Install the extracted vendor shared libraries (libmali for this
 	  board's actual GPU, libar8030_client, librga) into staging and
-	  target. Required to link kestrel.
+	  target. Required to link kestrel. With Mesa providing EGL/GLES/GBM,
+	  libmali is left out.
 
 	  Populate them first with scripts/extract-vendor.py; they come from
 	  firmware you own and are not redistributed by fpvOS.

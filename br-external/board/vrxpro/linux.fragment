@@ -1,0 +1,48 @@
+# fpvOS changes on top of the stock VRX Pro kernel config
+# (linux-5.10.198-stock.config, read out of the stock kernel image).
+#
+# Stock builds TV, radio and SDR tuners and frontends, and Broadcom (AP6xxx)
+# WiFi, as modules, but never ships them: the goggle has none of that
+# hardware. (The category switches only apply with the media filter on.)
+CONFIG_MEDIA_SUPPORT_FILTER=y
+# CONFIG_MEDIA_DIGITAL_TV_SUPPORT is not set
+# CONFIG_MEDIA_ANALOG_TV_SUPPORT is not set
+# CONFIG_MEDIA_RADIO_SUPPORT is not set
+# CONFIG_MEDIA_SDR_SUPPORT is not set
+# CONFIG_AP6XXX is not set
+
+# The camera interface (rkcif): disabled in the goggle's device tree, and its
+# source does not build with GCC 14 (an enum/int prototype mismatch under
+# -Werror).
+# CONFIG_VIDEO_ROCKCHIP_CIF is not set
+
+# The GPU: Panfrost, for Mesa. Arm's kbase driver (what stock builds in, for
+# libmali) is left out - the image has no libmali to go with it.
+# CONFIG_MALI_BIFROST is not set
+CONFIG_DRM_PANFROST=m
+
+# The onboard WiFi (RTL8188FTV, USB 0bda:f179): mainline rtl8xxxu, which has
+# RTL8188F support with access-point mode from 6.12 on.
+CONFIG_RTL8XXXU=m
+
+# 6.12 builds with -Werror by default, and some Rockchip drivers (and the
+# out-of-tree AR8030 driver) trip on GCC 14 warnings. Warnings stay warnings.
+# CONFIG_WERROR is not set
+# The ITE IT6161 display bridge (not on this board) no longer builds on 6.12:
+# it calls drm_do_get_edid(), which upstream removed.
+# CONFIG_DRM_ITE_IT6161 is not set
+# HDMI-CEC (unused here) crashes 6.12's dw-hdmi at boot: its hot-plug worker
+# reads the CEC adapter before the CEC driver has registered one.
+# CONFIG_DRM_DW_HDMI_CEC is not set
+
+# The SoC's OTP: stock's ROCKCHIP_OTP, renamed NVMEM_ROCKCHIP_OTP since, so
+# the carried-forward config lost it. The thermal sensor's trim, the per-chip
+# CPU/GPU/DDR voltage selection (leakage, chip bin) and the CPU serial
+# (ROCKCHIP_CPUINFO, which depends on it) all read from it.
+CONFIG_NVMEM_ROCKCHIP_OTP=y
+CONFIG_ROCKCHIP_CPUINFO=y
+
+# The board's fixed GPIO lines and its fan, from the rp_power, rp_gpio and
+# fan_gpio_control nodes - vendor drivers stock built in and never published,
+# redone in linux-patches/0002-misc-rpdzkj-board.patch.
+CONFIG_RPDZKJ_BOARD=y

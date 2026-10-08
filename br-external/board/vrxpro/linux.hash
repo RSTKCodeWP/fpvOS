@@ -1,0 +1,7 @@
+# Locally computed from the GitHub archive of the pinned commit
+sha256  3b6da867142d24b7d0282763debc072992f5d3bccc8c3dd7c9e68186b0284990  kernel-470f9dccbdc42e7b8a824d0a5c5640a10e9457d2.tar.gz
+# Licence files, from that tree (Rockchip's GPL-2.0 text differs from the
+# one Buildroot's own linux.hash has for upstream kernels)
+sha256  fb5a425bd3b3cd6071a3a9aff9909a859e7c1158d54d32e07658398cd67eb6a0  COPYING
+sha256  f6b78c087c3ebdf0f3c13415070dd480a3f35d8fc76f3d02180a407c1c812f79  LICENSES/preferred/GPL-2.0
+sha256  8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f  LICENSES/exceptions/Linux-syscall-note

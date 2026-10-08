@@ -30,6 +30,8 @@
 #   KESTREL_OVERRIDE_SRCDIR=   a local checkout; the download is skipped
 KESTREL_SITE ?= https://github.com/gehee/kestrel-gnd.git
 KESTREL_SITE_METHOD = git
+KESTREL_LICENSE = GPL-3.0
+KESTREL_LICENSE_FILES = LICENSE
 
 # The pin. Written by scripts/release.sh at release time - a tag from then on.
 KESTREL_PIN = 2026.10.beta2
@@ -47,6 +49,14 @@ ifeq ($(origin KESTREL_VERSION),undefined)
 endif
 
 KESTREL_DEPENDENCIES = ffmpeg cairo libdrm freetype pixman libpng rockchip-mpp fpvos-vendor-libs
+# The GL stack kestrel's CMake looks for (egl, glesv2, gbm): Mesa's or libmali's,
+# whichever provides them - built before kestrel either way.
+KESTREL_DEPENDENCIES += libegl libgles libgbm
+# The baseband client library: ar-libre's when the image has it, the vendor's
+# (through fpvos-vendor-libs) otherwise. Same API and name either way.
+ifeq ($(BR2_PACKAGE_AR_LIBRE),y)
+KESTREL_DEPENDENCIES += ar-libre
+endif
 
 # The AR8030 baseband client library is proprietary and extracted from device
 # firmware into vendor/. kestrel links it at runtime; the CMake build tolerates

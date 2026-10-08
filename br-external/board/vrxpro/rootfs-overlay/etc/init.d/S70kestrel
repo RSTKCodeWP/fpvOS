@@ -1,20 +1,14 @@
 #!/bin/sh
-# Start kestrel-gnd at boot, once the baseband is actually ready.
+# Start kestrel-gnd at boot, once the baseband is ready, and keep it running.
 #
-# Two things make this more than a one-liner:
+# S60ar8030 backgrounds the bring-up, so "S60 has run" does not mean the
+# baseband is ready: wait for /dev/arlinkN first. If it never comes, start
+# kestrel-gnd anyway - when it cannot connect it restarts the baseband itself
+# (S60ar8030 restart), which is the recovery a failed first bring-up needs.
 #
-# 1. S60ar8030 backgrounds the bring-up, so "S60 has run" does not mean the
-#    daemon exists yet, let alone that the baseband is ready. We poll for the
-#    daemon and then allow a settle margin.
-#
-# 2. bb_socket_open() in the vendor client library waits with no timeout, so
-#    a lost reply from the daemon hangs the process forever with no video and
-#    no error.
-#    The binary now recovers from that itself; this retry remains for the
-#    case where it could not.
-#
-# Success is "the video socket opened", not "the process is still alive" - a
-# wedged kestrel-gnd stays alive indefinitely doing nothing.
+# kestrel-gnd is supervised: if it dies for any reason, arlink.ko has already
+# closed the radio sockets it left open, and starting it again is the whole
+# recovery.
 
 # The system clock runs in UTC (S36rtc converts the pcf8563's Beijing wall
 # clock), so the OSD clock and the timestamps on recordings only come out local
@@ -24,43 +18,58 @@
 [ -n "$TZ" ] && export TZ
 
 BIN=/usr/bin/kestrel-gnd
-LOG=/var/log/kestrel-gnd.log
-DAEMON_WAIT=120     # max seconds to wait for /ar8030soc/daemon to appear
-SETTLE=20           # worst-case cap while polling for its RPC port below -
-                    # a live boot log showed the port listening within
-                    # seconds of the process existing, so this used to be a
-                    # blind sleep of the same length on every single boot
-# kestrel-gnd now carries its own bring-up watchdog (artosyn/bb_watchdog.cpp),
-# which notices a wedged bb_socket_open within ~14s and recovers by restarting
-# the daemon and re-execing itself - four attempts with a growing settle, about
-# 160s of budget in total. This wait has to outlast that, or the two fight over
-# the same fault and the slower, cruder remedy wins. What is left here is the
-# last resort: the process is still not up after it has exhausted its own.
-OPEN_WAIT=200       # seconds to wait for "video socket open" before retrying
-TRIES=3
+LOG=/var/log/kestrel-gnd.log        # this run; .prev the one before, .first
+                                    # the first one since boot that ended
+RADIO_WAIT=120      # max seconds to wait for /dev/arlinkN
+SUPERVISOR=/var/run/kestrel-supervise.pid
+CHIPLOG=/var/log/ar8030-chip.log    # the AR8030's own log, 2 x 1 MB at most
+
+radio_up() { ls /dev/arlink[0-9]* >/dev/null 2>&1; }
+
+# The pid in $SUPERVISOR, if that process is still this script (starting or
+# supervising). A stale file can name a pid that has been reused since.
+supervisor_pid() {
+    p=$(cat $SUPERVISOR 2>/dev/null)
+    [ -n "$p" ] && [ -r /proc/$p/cmdline ] &&
+        tr '\0' ' ' < /proc/$p/cmdline | grep -q S70kestrel && echo $p
+}
+
+# kestrel-gnd brings the link back by itself (restarting the baseband when it
+# cannot), so this only has to keep the process running. One that keeps dying
+# straight after starting is restarted every 10 s instead of every second.
+supervise() {
+    echo $$ > $SUPERVISOR
+    n=0
+    quick=0
+    while :; do
+        n=$((n + 1))
+        [ -f $LOG ] && mv -f $LOG $LOG.prev
+        echo "kestrel: start $n (supervised)" > $LOG
+        t0=$(cut -d. -f1 /proc/uptime)
+        ARLINK_CHIPLOG=$CHIPLOG $BIN >> $LOG 2>&1
+        rc=$?
+        up=$(($(cut -d. -f1 /proc/uptime) - t0))
+        echo "kestrel: exited with status $rc after ${up}s - starting it again" >> $LOG
+        # A crash loop rotates through .prev in seconds; keep how it began.
+        [ -f $LOG.first ] || cp $LOG $LOG.first
+        if [ $up -lt 10 ]; then quick=$((quick + 1)); else quick=0; fi
+        if [ $quick -ge 3 ]; then sleep 10; else sleep 1; fi
+    done
+}
 
 start() {
     [ -x "$BIN" ] || { echo "kestrel: $BIN missing"; exit 0; }
+    if p=$(supervisor_pid); then
+        echo "kestrel: already started (pid $p)"
+        return 0
+    fi
     (
         i=0
-        while [ $i -lt $DAEMON_WAIT ]; do
-            pidof daemon >/dev/null 2>&1 && break
+        while [ $i -lt $RADIO_WAIT ] && ! radio_up; do
             sleep 2; i=$((i + 2))
         done
-        if ! pidof daemon >/dev/null 2>&1; then
-            echo "kestrel: daemon never appeared after ${DAEMON_WAIT}s" >> $LOG
-            exit 1
-        fi
-
-        # The process existing doesn't mean it's actually ready - bb_only.sh's
-        # own diagnostics already confirm the RPC port comes up within a few
-        # seconds in practice, so poll for that instead of always waiting the
-        # full worst-case margin.
-        s=0
-        while [ $s -lt $SETTLE ]; do
-            netstat -ltn 2>/dev/null | grep -q ':50000 ' && break
-            sleep 1; s=$((s + 1))
-        done
+        radio_up || echo "kestrel: no /dev/arlinkN after ${RADIO_WAIT}s - starting" \
+            "kestrel-gnd anyway, it restarts the baseband itself" >> $LOG
 
         # Only one process can hold the DRM master, and the splash (S12splash)
         # still has it. SIGUSR1 tells it to drop master and hold its current
@@ -74,41 +83,24 @@ start() {
         [ -f /var/run/kestrel-splash.pid ] && \
             kill -USR1 "$(cat /var/run/kestrel-splash.pid)" 2>/dev/null
 
-        try=1
-        while [ $try -le $TRIES ]; do
-            [ -f $LOG ] && mv -f $LOG $LOG.prev
-            echo "kestrel: start attempt $try/$TRIES" > $LOG
-            $BIN >> $LOG 2>&1 &
-            kp=$!
-
-            j=0
-            ok=0
-            while [ $j -lt $OPEN_WAIT ]; do
-                sleep 2; j=$((j + 2))
-                kill -0 $kp 2>/dev/null || break     # died on its own
-                grep -q "video socket open" $LOG && { ok=1; break; }
-            done
-
-            if [ $ok -eq 1 ]; then
-                echo "kestrel: up after ${j}s (attempt $try)" >> $LOG
-                exit 0
-            fi
-
-            echo "kestrel: no video socket in ${j}s - baseband wedged, restarting" >> $LOG
-            kill -9 $kp 2>/dev/null
-            sleep 2
-            /root/bb-restart.sh >> $LOG 2>&1
-            try=$((try + 1))
-        done
-        echo "kestrel: giving up after $TRIES attempts" >> $LOG
+        # Same process from here on (exec keeps the pid), so $SUPERVISOR,
+        # written below as soon as this starts, names it throughout.
+        exec "$0" supervise
     ) &
+    echo $! > $SUPERVISOR
 }
 
 stop() {
+    # The supervisor first, or it starts kestrel-gnd again.
+    p=$(supervisor_pid) && kill $p 2>/dev/null
+    rm -f $SUPERVISOR
     if pidof kestrel-gnd >/dev/null 2>&1; then
-        kill -INT "$(pidof kestrel-gnd)" 2>/dev/null
-        sleep 6
-        pidof kestrel-gnd >/dev/null 2>&1 && kill -9 "$(pidof kestrel-gnd)" 2>/dev/null
+        kill -INT $(pidof kestrel-gnd) 2>/dev/null
+        i=0
+        while pidof kestrel-gnd >/dev/null 2>&1 && [ $i -lt 12 ]; do
+            usleep 500000; i=$((i + 1))
+        done
+        pidof kestrel-gnd >/dev/null 2>&1 && kill -9 $(pidof kestrel-gnd) 2>/dev/null
     fi
 }
 
@@ -116,12 +108,14 @@ case "$1" in
     start|"") start ;;
     stop)     stop ;;
     restart)  stop; sleep 2; start ;;
+    supervise) supervise ;;
     status)
+        p=$(supervisor_pid) && echo "supervised (pid $p)"
         if pidof kestrel-gnd >/dev/null 2>&1; then
             echo "kestrel-gnd running (pid $(pidof kestrel-gnd))"
         else
             echo "kestrel-gnd not running"; exit 1
         fi ;;
-    *) echo "usage: $0 {start|stop|restart|status}"; exit 1 ;;
+    *) echo "usage: $0 {start|stop|restart|status|supervise}"; exit 1 ;;
 esac
 exit 0

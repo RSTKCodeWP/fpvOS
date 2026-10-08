@@ -3,10 +3,19 @@
 #
 # Extracts the vendor runtime and the stock boot chain from Caddx's own
 # firmware release (scripts/extract-vendor.py), builds, and emits a card image
-# plus checksums:
+# plus what has to go out with it, and checksums:
 #
 #   out/fpvos-vrxpro-<version>.img.xz
+#   out/fpvos-vrxpro-<version>-licenses.tar.xz  every package's licence texts,
+#                                               and the manifest of what is in
+#                                               the image under which licence
+#   out/fpvos-vrxpro-<version>-sources.tar      the exact source of every
+#                                               package built into the image,
+#                                               with fpvOS's patches - for the
+#                                               GPL, the corresponding source
 #   out/SHA256SUMS
+#
+# Publish all of them together.
 #
 # The vendor files are proprietary and are never committed to this repository;
 # extract-vendor.py downloads the stock firmware (cached under ~/.cache/fpvos)
@@ -103,6 +112,26 @@ fi
 if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
     echo "fpvOS working tree is not clean - commit or stash first" >&2; exit 1
 fi
+# Nothing from outside the pins: a local checkout or another revision would
+# go into the image (and into legal-info) under the release's name.
+for v in KESTREL_OVERRIDE_SRCDIR KESTREL_AIR_OVERRIDE_SRCDIR AR_LIBRE_OVERRIDE_SRCDIR \
+         LINUX_OVERRIDE_SRCDIR ROCKCHIP_MPP_OVERRIDE_SRCDIR KESTREL_BRANCH \
+         KESTREL_AIR_VERSION KESTREL_AIR_SITE AR_LIBRE_VERSION AR_LIBRE_SITE; do
+    if [ -n "$(printenv "$v")" ]; then
+        echo "$v is set in the environment - a release builds only what the tree pins; unset it" >&2
+        exit 1
+    fi
+done
+# A build output from before: Buildroot patches a package only when it
+# extracts it, never rebuilds the boot chain for a changed mkbootchain.py and
+# never removes a deselected package from target/ - so an old output ships
+# without new patches, device-tree edits or library switches. From scratch,
+# unless only re-assembling (SKIP_BUILD=1).
+if [ "${SKIP_BUILD:-0}" != "1" ] && [ -n "$(ls -A "$ROOT/buildroot/output" 2>/dev/null)" ]; then
+    echo "buildroot/output is not empty - a release builds from scratch: rm -rf buildroot/output" >&2
+    echo "(or SKIP_BUILD=1 to re-assemble the image from the build that is there)" >&2
+    exit 1
+fi
 # The build below uses exactly this commit, whatever the pin currently says.
 export KESTREL_VERSION="$KCOMMIT"
 # The version the image reports - /etc/fpvos-version, os-release and the
@@ -176,6 +205,36 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
     "$ROOT/build.sh" >/dev/null 2>&1 || "$ROOT/build.sh"
 fi
 
+# --- 2b. what the build holds is what this tree says ----------------------
+# Checked before anything is assembled or tagged: an output that missed a
+# patch, a device-tree edit or a library switch passes every step above.
+BO="$ROOT/buildroot/output"
+fail() { echo "RELEASE ABORTED: $*" >&2; exit 1; }
+kver=$(strings "$BO/images/Image" 2>/dev/null | sed -n 's/^Linux version \([0-9.]*\).*/\1/p' | head -1)
+[ -n "$kver" ] || fail "no kernel banner in output/images/Image"
+ls "$BO/target/lib/modules" 2>/dev/null | grep -q "^$kver" || fail "kernel $kver but target/lib/modules has $(ls "$BO/target/lib/modules" 2>/dev/null | tr '\n' ' ')"
+for p in "$ROOT"/br-external/board/vrxpro/linux-patches/*.patch; do
+    grep -q "$(basename "$p")" "$BO"/build/linux-*/.applied_patches_list 2>/dev/null ||
+        fail "kernel patch $(basename "$p") not applied in the build"
+done
+for p in "$ROOT"/br-external/package/rockchip-mpp/*.patch; do
+    grep -q "$(basename "$p")" "$BO"/build/rockchip-mpp-*/.applied_patches_list 2>/dev/null ||
+        fail "MPP patch $(basename "$p") not applied in the build"
+done
+DTC="$BO/host/bin/dtc"; [ -x "$DTC" ] || DTC=$(command -v dtc || true)
+[ -n "$DTC" ] || fail "no dtc to check the device tree"
+"$DTC" -q -I dtb -O dts "$BO/images/rk3568-pro-patched.dtb" | grep -q "rockchip,plane-mask = <0x1d>" ||
+    fail "the device tree lacks the second video plane on the screen's port (plane-mask 0x1d)"
+strings "$BO/target/usr/bin/kestrel-gnd" | grep -q "decoded as their slices arrive" ||
+    fail "kestrel-gnd in the target has no stream decode - not the commit being released?"
+KSHORT=$(printf '%.8s' "$KCOMMIT")   # ${KCOMMIT:0:8} is bash-only; this is /bin/sh
+strings "$BO/target/usr/bin/kestrel-gnd" | grep -q "$KSHORT" ||
+    fail "kestrel-gnd in the target was not built from $KCOMMIT"
+if grep -q "^BR2_PACKAGE_MESA3D=y" "$BO/.config" && ls "$BO"/target/usr/lib/libmali* >/dev/null 2>&1; then
+    fail "Mesa is selected but libmali is still in the target (an old output)"
+fi
+echo ">>> verified: kernel $kver with its patches, MPP patches, the plane edit, kestrel $KSHORT"
+
 # --- 3. assemble the card image -------------------------------------------
 echo ">>> assembling image"
 # COMPRESS=0: the .xz is made in step 4, after step 3b has checked the image.
@@ -208,10 +267,25 @@ if [ -n "$leak" ]; then
 fi
 echo ">>> verified: no /factory pairing data in the image"
 
-# --- 4. compress + checksum -----------------------------------------------
+# --- 4. licences, sources, compress + checksum -----------------------------
+# Buildroot's legal-info: each package's licence files and the sources it was
+# built from (with the patches applied on top). The vendor packages are marked
+# not redistributable, so they are listed in the manifest but contribute no
+# files.
+echo ">>> collecting licences and sources (legal-info)"
+LEGAL="$ROOT/buildroot/output/legal-info"
+rm -rf "$LEGAL"
+make -C "$ROOT/buildroot" BR2_EXTERNAL="$ROOT/br-external" legal-info >/dev/null
+tar -C "$LEGAL" --transform "s,^\.,fpvos-vrxpro-$VERSION-licenses," -cJf \
+    "$OUT/fpvos-vrxpro-$VERSION-licenses.tar.xz" \
+    ./README ./manifest.csv ./licenses ./buildroot.config
+tar -C "$LEGAL" --transform "s,^\./sources,fpvos-vrxpro-$VERSION-sources," -cf \
+    "$OUT/fpvos-vrxpro-$VERSION-sources.tar" ./sources
+
 echo ">>> compressing"
 xz -T0 -f "$IMG"
-( cd "$OUT" && sha256sum "fpvos-vrxpro-$VERSION.img.xz" > SHA256SUMS )
+( cd "$OUT" && sha256sum "fpvos-vrxpro-$VERSION.img.xz" \
+      "fpvos-vrxpro-$VERSION-licenses.tar.xz" "fpvos-vrxpro-$VERSION-sources.tar" > SHA256SUMS )
 
 echo
 echo "=== release artifacts ==="
@@ -250,4 +324,5 @@ if [ "$DRY" != 1 ]; then
     echo
     echo "publish with (after checking the artifacts):"
     echo "  git -C $ROOT push origin main refs/tags/$VERSION"
+    echo "and attach all of $OUT to the release: the image, its licences and its sources"
 fi

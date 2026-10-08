@@ -1,0 +1,319 @@
+From: Gee <gehee@users.noreply.github.com>
+Subject: [PATCH] misc: rpdzkj-board: the board lines and GPIO fan of the VRX Pro
+
+The goggle's device tree has three nodes for drivers that only exist in the
+vendor's (unpublished) kernel: rp_power and rp_gpio, which set the board's
+fixed GPIO lines at boot (USB power, hub reset, SD power, speaker enable and
+mute, the status LED), and fan_gpio_control, which runs the fan from 60 C.
+Without them a kernel built from source leaves those lines at their reset
+state and never switches the fan on.
+
+This driver binds the same nodes and does what the vendor code in the stock
+kernel does with them: each line is driven to its active level (function 0
+and 4), blinks (3) or is an input (1); the fan follows the soc-thermal zone,
+on at threshold-temp, off once 5 C below it after running-time. The fan is
+polled rather than bound as a cooling device, because the zone's
+power_allocator governor only drives devices with a power model.
+
+Signed-off-by: Gee <gehee@users.noreply.github.com>
+---
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index 10aa8e7..a112937 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -628,6 +628,15 @@ config MARVELL_CN10K_DPI
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called mrvl_cn10k_dpi.
+ 
++config RPDZKJ_BOARD
++	bool "rpdzkj RK3568 core board lines and GPIO fan"
++	depends on OF && GPIOLIB && THERMAL
++	help
++	  Drives the board's fixed GPIO lines (USB power, hub reset, SD
++	  power, speaker, status LED) and its GPIO fan, from the rp_power,
++	  rp_gpio and fan_gpio_control device-tree nodes the vendor kernel
++	  binds. Found on the Caddx VRX Pro goggle.
++
+ source "drivers/misc/c2port/Kconfig"
+ source "drivers/misc/eeprom/Kconfig"
+ source "drivers/misc/cb710/Kconfig"
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index 38f3eae..ca915af 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -75,5 +75,6 @@ obj-$(CONFIG_TMR_INJECT)	+= xilinx_tmr_inject.o
+ obj-$(CONFIG_TPS6594_ESM)	+= tps6594-esm.o
+ obj-$(CONFIG_TPS6594_PFSM)	+= tps6594-pfsm.o
+ obj-$(CONFIG_NSM)		+= nsm.o
++obj-$(CONFIG_RPDZKJ_BOARD)	+= rpdzkj-board.o
+ obj-$(CONFIG_MARVELL_CN10K_DPI)	+= mrvl_cn10k_dpi.o
+ obj-y				+= keba/
+diff --git a/drivers/misc/rpdzkj-board.c b/drivers/misc/rpdzkj-board.c
+new file mode 100644
+index 0000000..11a50c8
+--- /dev/null
++++ b/drivers/misc/rpdzkj-board.c
+@@ -0,0 +1,263 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Board lines and fan of the rpdzkj RK3568 core board in the Caddx VRX Pro
++ * goggle, for the device-tree nodes its vendor kernel binds. The vendor
++ * drivers were never published; this does what their code in the stock
++ * kernel does with the same properties.
++ *
++ *   rp_power, rp_gpio  one child node per line:
++ *                        gpio_num = <&gpioN pin flags>;
++ *                        gpio_function = <0>  output, driven to its active level
++ *                                        <1>  input (the vendor driver reported
++ *                                             edges as key events; not done here)
++ *                                        <3>  output, blinking
++ *                                        <4>  output, driven to its active level
++ *                                             (the vendor driver also gave
++ *                                             userspace a file to switch it)
++ *   fan_gpio_control   gpio-pin = <&gpioN pin flags>;
++ *                      thermal-zone = "soc-thermal";
++ *                      threshold-temp = <millidegrees>;
++ *                      running-time = <ms>;
++ *                      the fan runs from the threshold until the zone has
++ *                      cooled FAN_HYST below it and it has run running-time.
++ *
++ * The fan is not a cooling device of the zone: the zone's power_allocator
++ * governor only drives devices with a power model, so it would never switch
++ * a GPIO fan. It is polled here instead, as the vendor driver did.
++ */
++#include <dt-bindings/gpio/gpio.h>
++#include <linux/gpio.h>
++#include <linux/jiffies.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_gpio.h>
++#include <linux/platform_device.h>
++#include <linux/property.h>
++#include <linux/thermal.h>
++#include <linux/workqueue.h>
++
++#define FLASH_MS	500	/* blinking lines: half a period */
++#define FAN_POLL_MS	1000
++#define FAN_HYST	5000	/* millidegrees */
++
++enum { FN_OUT = 0, FN_IN = 1, FN_FLASH = 3, FN_OUT_USER = 4 };
++enum { RP_LINES, RP_FAN };
++
++struct rp_flash {
++	struct delayed_work work;
++	int gpio;
++	int level;
++};
++
++struct rp_fan {
++	struct device *dev;
++	struct delayed_work work;
++	const char *zone_name;
++	struct thermal_zone_device *tz;
++	int gpio;
++	int active;		/* the level that runs the fan */
++	int threshold;		/* millidegrees */
++	unsigned long min_run;	/* jiffies */
++	unsigned long on_since;
++	bool on;
++	bool read_failed;
++};
++
++/* A <&gpioN pin flags> property: the line, and the level that asserts it. */
++static int rp_of_gpio(struct device_node *np, const char *prop, int *gpio, int *active)
++{
++	u32 flags = 0;
++
++	*gpio = of_get_named_gpio(np, prop, 0);
++	if (*gpio < 0)
++		return *gpio;
++	of_property_read_u32_index(np, prop, 2, &flags);
++	*active = !(flags & GPIO_ACTIVE_LOW);
++	return 0;
++}
++
++static void rp_flash_work(struct work_struct *work)
++{
++	struct rp_flash *f = container_of(to_delayed_work(work), struct rp_flash, work);
++
++	f->level = !f->level;
++	gpio_set_value(f->gpio, f->level);
++	schedule_delayed_work(&f->work, msecs_to_jiffies(FLASH_MS));
++}
++
++static void rp_cancel_work(void *data)
++{
++	cancel_delayed_work_sync(data);
++}
++
++static int rp_lines_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct device_node *child;
++	int n = 0;
++
++	for_each_available_child_of_node(dev->of_node, child) {
++		const char *name = child->name;
++		struct rp_flash *f;
++		int gpio, active, r;
++		u32 fn = FN_OUT;
++
++		r = rp_of_gpio(child, "gpio_num", &gpio, &active);
++		if (r == -EPROBE_DEFER) {
++			of_node_put(child);
++			return r;
++		}
++		if (r < 0) {
++			dev_warn(dev, "%s: no usable gpio_num (%d)\n", name, r);
++			continue;
++		}
++		of_property_read_u32(child, "gpio_function", &fn);
++
++		switch (fn) {
++		case FN_OUT:
++		case FN_OUT_USER:
++			r = devm_gpio_request_one(dev, gpio,
++				active ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW, name);
++			break;
++		case FN_FLASH:
++			f = devm_kzalloc(dev, sizeof(*f), GFP_KERNEL);
++			if (!f) {
++				of_node_put(child);
++				return -ENOMEM;
++			}
++			f->gpio = gpio;
++			f->level = active;
++			r = devm_gpio_request_one(dev, gpio,
++				active ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW, name);
++			if (r)
++				break;
++			INIT_DELAYED_WORK(&f->work, rp_flash_work);
++			r = devm_add_action_or_reset(dev, rp_cancel_work, &f->work);
++			if (r) {
++				of_node_put(child);
++				return r;
++			}
++			schedule_delayed_work(&f->work, msecs_to_jiffies(FLASH_MS));
++			break;
++		case FN_IN:
++			r = devm_gpio_request_one(dev, gpio, GPIOF_IN, name);
++			break;
++		default:
++			dev_warn(dev, "%s: gpio_function %u not supported\n", name, fn);
++			continue;
++		}
++		if (r) {
++			dev_warn(dev, "%s: gpio %d: request failed (%d)\n", name, gpio, r);
++			continue;
++		}
++		n++;
++	}
++	dev_info(dev, "%d lines set\n", n);
++	return 0;
++}
++
++static void rp_fan_set(struct rp_fan *fan, bool on)
++{
++	if (on == fan->on)
++		return;
++	fan->on = on;
++	if (on)
++		fan->on_since = jiffies;
++	gpio_set_value(fan->gpio, on ? fan->active : !fan->active);
++}
++
++static void rp_fan_work(struct work_struct *work)
++{
++	struct rp_fan *fan = container_of(to_delayed_work(work), struct rp_fan, work);
++	int temp, r = -ENODEV;
++
++	/* The zone may register after us; keep looking until it does. */
++	if (!fan->tz) {
++		struct thermal_zone_device *tz = thermal_zone_get_zone_by_name(fan->zone_name);
++
++		if (!IS_ERR(tz))
++			fan->tz = tz;
++	}
++	if (fan->tz)
++		r = thermal_zone_get_temp(fan->tz, &temp);
++
++	if (r) {
++		/* No temperature: run the fan rather than guess. */
++		if (!fan->read_failed)
++			dev_warn(fan->dev, "%s: no temperature (%d), fan on\n", fan->zone_name, r);
++		fan->read_failed = true;
++		rp_fan_set(fan, true);
++	} else {
++		fan->read_failed = false;
++		if (temp >= fan->threshold)
++			rp_fan_set(fan, true);
++		else if (fan->on && temp < fan->threshold - FAN_HYST &&
++			 time_after_eq(jiffies, fan->on_since + fan->min_run))
++			rp_fan_set(fan, false);
++	}
++	schedule_delayed_work(&fan->work, msecs_to_jiffies(FAN_POLL_MS));
++}
++
++static int rp_fan_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct device_node *np = dev->of_node;
++	struct rp_fan *fan;
++	u32 threshold = 60000, run_ms = 10000;
++	int r;
++
++	fan = devm_kzalloc(dev, sizeof(*fan), GFP_KERNEL);
++	if (!fan)
++		return -ENOMEM;
++	fan->dev = dev;
++	r = rp_of_gpio(np, "gpio-pin", &fan->gpio, &fan->active);
++	if (r < 0)
++		return dev_err_probe(dev, r, "no usable gpio-pin\n");
++	if (of_property_read_string(np, "thermal-zone", &fan->zone_name))
++		fan->zone_name = "soc-thermal";
++	of_property_read_u32(np, "threshold-temp", &threshold);
++	of_property_read_u32(np, "running-time", &run_ms);
++	fan->threshold = threshold;
++	fan->min_run = msecs_to_jiffies(run_ms);
++
++	r = devm_gpio_request_one(dev, fan->gpio,
++		fan->active ? GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH, "fan");
++	if (r)
++		return dev_err_probe(dev, r, "gpio %d\n", fan->gpio);
++
++	INIT_DELAYED_WORK(&fan->work, rp_fan_work);
++	r = devm_add_action_or_reset(dev, rp_cancel_work, &fan->work);
++	if (r)
++		return r;
++	schedule_delayed_work(&fan->work, 0);
++	dev_info(dev, "gpio %d, on at %d.%d C in %s, runs at least %u ms\n", fan->gpio,
++		 fan->threshold / 1000, fan->threshold % 1000 / 100, fan->zone_name, run_ms);
++	return 0;
++}
++
++static int rp_board_probe(struct platform_device *pdev)
++{
++	if ((uintptr_t)device_get_match_data(&pdev->dev) == RP_FAN)
++		return rp_fan_probe(pdev);
++	return rp_lines_probe(pdev);
++}
++
++static const struct of_device_id rp_board_of_match[] = {
++	{ .compatible = "rp_power", .data = (void *)RP_LINES },
++	{ .compatible = "rp_gpio", .data = (void *)RP_LINES },
++	{ .compatible = "fan_gpio_control", .data = (void *)RP_FAN },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, rp_board_of_match);
++
++static struct platform_driver rp_board_driver = {
++	.probe = rp_board_probe,
++	.driver = {
++		.name = "rpdzkj-board",
++		.of_match_table = rp_board_of_match,
++	},
++};
++module_platform_driver(rp_board_driver);
++
++MODULE_DESCRIPTION("rpdzkj RK3568 board lines and GPIO fan");
++MODULE_LICENSE("GPL");

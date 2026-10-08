@@ -1,15 +1,14 @@
 #!/bin/sh
-# Bring up the AR8030 baseband + daemon ONLY (no ar_ldy_gnd), for kestrel-gnd --link ar8030.
+# Bring up the AR8030 baseband ONLY (no ar_ldy_gnd), for kestrel-gnd --link ar8030.
 #
-# The chip boots in bootloader mode (4152:8030). Loading artosyn_drv with
+# The chip boots in bootloader mode (4152:8030). Loading the driver with
 # fw_name/cfg_name uploads the baseband firmware; the chip then re-enumerates
-# as 1d6b:8030 ("HS Mode") and the *resident* driver probes it again, creating
-# /dev/ar_mdev0 + /dev/ar_net0. Those nodes are what the daemon exports on
-# :50000 and what bb_dev_getlist() finds.
+# as 1d6b:8030 ("HS Mode") and the resident driver probes it again.
 #
-# Do NOT rmmod after the upload: loading the driver once the chip is already in
-# HS mode produces no probe event (no hotplug), so the device nodes never
-# appear and bb_dev_getlist() returns 0.
+# The driver is fpvOS's own arlink.ko (package ar-libre). The running chip is
+# /dev/arlinkN and kestrel's client library talks to it directly: no daemon.
+# (Artosyn's binary artosyn_drv.ko only loads into the stock 5.10 kernel, so
+# an image with a kernel built from source has no other stack to fall back on.)
 
 # Which baseband profile to upload with the firmware.
 #
@@ -38,6 +37,12 @@ esac
 # written to the AR8030 permanently, so a reboot always returns to the default.
 BB_FW="${BB_FW:-bb_demo_cx485_2PA.img}"
 
+# One bring-up at a time. kestrel-gnd asks for one (S60ar8030 restart) each
+# time it cannot connect, and in a crash loop it can ask again before the last
+# has finished: the second waits for the first, then does its own.
+exec 9> /var/run/bb_only.lock
+flock -w 90 9 || { echo ">> ERROR: another bring-up held the lock for 90s"; exit 1; }
+
 mkdir -p /usrdata/record
 mountpoint -q /usrdata/record || mount -t tmpfs -o size=64M tmpfs /usrdata/record
 
@@ -56,6 +61,14 @@ echo ">> pwm_ctl.sh (fan/led/buzzer) - stock does this before the radio"
 sysctl -w net.core.wmem_max=4194304 > /dev/null 2>&1
 sysctl -w net.ipv4.tcp_wmem="4096 2097152 8388608" > /dev/null 2>&1
 echo 40000000 > /proc/sys/vm/dirty_bytes 2>/dev/null
+
+# Unload a resident copy so this bring-up's firmware and config are the ones
+# uploaded once the power cycle below sends the chip back to its boot ROM. If a
+# program still has /dev/arlinkN open this fails, and the resident copy
+# uploads with the parameters it was loaded with.
+rmmod arlink 2>/dev/null
+
+arlink_up() { ls /dev/arlink[0-9]* >/dev/null 2>&1; }
 
 echo ">> enable_rf (GPIO power-on)"
 for g in 154 83 84 82; do gpio_lo "$g"; done
@@ -81,37 +94,32 @@ echo ">> baseband profile: $BB_PROFILE ($BB_CFG)"
 # and never writes the NAND, and the merge never ran here anyway (it gave up
 # on the missing /factory/app.version) while the link worked without it.
 
-echo ">> insmod artosyn_drv (uploads fw, stays resident for the HS-mode re-probe)"
-insmod /ar8030soc/artosyn_drv.ko fw_name=$BB_FW cfg_name=$BB_CFG 2>&1
+# modprobe finds the module wherever kbuild put it (extra/ on 5.10, updates/
+# on 6.x).
+echo ">> modprobe arlink (uploads fw, stays resident for the HS-mode re-probe)"
+modprobe arlink fw_name=$BB_FW cfg_name=$BB_CFG 2>&1
 
 # Wait for the chip to come back as HS mode and the driver to re-probe it.
 n=0
-while [ ! -e /dev/ar_mdev0 ] && [ "$n" -lt 30 ]; do
+while ! arlink_up && [ "$n" -lt 30 ]; do
     sleep 1
     n=$((n + 1))
 done
 
-if [ -e /dev/ar_mdev0 ]; then
-    echo ">> ar_mdev0 present after ${n}s"
+if arlink_up; then
+    echo ">> $(ls /dev/arlink[0-9]* | head -1) present after ${n}s"
 else
-    # The chip never reached HS mode. Leaving the driver resident here is not
-    # harmless: it keeps re-probing the BL1 device and re-uploading, which locks
-    # the console into a scroll of ar_usb_probe / upgrade bb_cfg lines and never
-    # converges. Unload it so the failure is quiet and recoverable.
-    echo ">> ERROR: ar_mdev0 never appeared (${n}s) with profile '$BB_PROFILE' ($BB_CFG)"
-    echo ">> unloading artosyn_drv to stop the BL1 re-upload loop"
-    rmmod artosyn_drv 2>/dev/null
+    # The chip never reached HS mode. A config the firmware cannot run sends
+    # the chip back to its boot ROM and the driver re-uploads, until it gives
+    # up. Unload it so the failure is quiet and recoverable.
+    echo ">> ERROR: no /dev/arlinkN after ${n}s with profile '$BB_PROFILE' ($BB_CFG)"
+    echo ">> unloading arlink to stop the BL1 re-upload loop"
+    rmmod arlink 2>/dev/null
     echo ">> recover with: BB_PROFILE=caddx /ar8030soc/bb_only.sh"
     exit 1
 fi
 
-echo ">> starting daemon (broker on :50000)   [note: -l is NOT a valid option]"
-setsid nice -n -5 /ar8030soc/daemon -i 0 < /dev/null > /tmp/daemon.log 2>&1 &
-sleep 3
-
 echo "--- usb ---";     lsusb | grep -i 8030
-echo "--- driver ---";  lsmod | grep artosyn || echo "NOT LOADED"
-echo "--- devices ---"; ls /dev/ar_* 2>&1
-echo "--- daemon ---";  ps w | grep '[a]r8030soc/daemon' | head -2
-echo "--- :50000 ---";  netstat -ltn 2>/dev/null | grep 50000 || echo "NOT LISTENING"
-echo "--- daemon log ---"; head -5 /tmp/daemon.log
+echo "--- driver ---";  lsmod | grep arlink || echo "NOT LOADED"
+echo "--- device ---";  ls -l /dev/arlink* 2>&1
+dmesg | grep arlink | tail -3

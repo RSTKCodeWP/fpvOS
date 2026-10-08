@@ -10,6 +10,12 @@
 FPVOS_BOOTCHAIN_VERSION = 1.0
 FPVOS_BOOTCHAIN_SITE = $(BR2_EXTERNAL_FPVOS_PATH)/../vendor/stock
 FPVOS_BOOTCHAIN_SITE_METHOD = local
+# The stock boot images (U-Boot, ARM Trusted Firmware, OP-TEE, the device
+# tree), from the user's own stock firmware download; fpvOS patches them but
+# has no source for them. Listed in legal-info's manifest, never copied into
+# its sources.
+FPVOS_BOOTCHAIN_LICENSE = PROPRIETARY
+FPVOS_BOOTCHAIN_REDISTRIBUTE = NO
 # dtc and lz4 only: the FIT is built with dtc (see mkbootchain.py), since
 # host-uboot-tools pulls in gnutls, which fails on current distributions.
 FPVOS_BOOTCHAIN_DEPENDENCIES = host-dtc host-lz4
@@ -18,13 +24,21 @@ FPVOS_BOOTCHAIN_INSTALL_IMAGES = YES
 
 FPVOS_BOOTCHAIN_FILES = uboot-patched.bin boot-sd3.img rk3568-pro-patched.dtb Image
 
+# With a kernel built from source (BR2_LINUX_KERNEL), that goes into the FIT
+# in place of the stock kernel.
+ifeq ($(BR2_LINUX_KERNEL),y)
+FPVOS_BOOTCHAIN_DEPENDENCIES += linux
+FPVOS_BOOTCHAIN_KERNEL_OPT = --kernel $(LINUX_ARCH_PATH)/boot/$(LINUX_IMAGE_NAME)
+endif
+
 define FPVOS_BOOTCHAIN_BUILD_CMDS
 	python3 $(BR2_EXTERNAL_FPVOS_PATH)/../boot/mkbootchain.py \
 		--stock $(@D) \
 		--its $(BR2_EXTERNAL_FPVOS_PATH)/../boot/sd3.its \
 		--out $(@D)/out \
 		--dtc $(HOST_DIR)/bin/dtc \
-		--lz4 $(HOST_DIR)/bin/lz4
+		--lz4 $(HOST_DIR)/bin/lz4 \
+		$(FPVOS_BOOTCHAIN_KERNEL_OPT)
 endef
 
 define FPVOS_BOOTCHAIN_INSTALL_IMAGES_CMDS

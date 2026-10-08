@@ -1,0 +1,24 @@
+From: Gee <gehee@users.noreply.github.com>
+Subject: [PATCH] drm/rockchip: dw_hdmi: late_register without an external PHY
+
+RK3568 drives HDMI with the PHY built into the DesignWare controller, so
+there is no external PHY and hdmi->phy is NULL. late_register dereferenced
+it unconditionally to hand the PHY a debugfs directory, and the kernel
+panicked while registering the display. Skip that step when there is no
+external PHY.
+
+Signed-off-by: Gee <gehee@users.noreply.github.com>
+---
+diff --git a/drivers/gpu/drm/rockchip/dw_hdmi-rockchip.c b/drivers/gpu/drm/rockchip/dw_hdmi-rockchip.c
+index a943aacce9b6..ac66482f60e5 100644
+--- a/drivers/gpu/drm/rockchip/dw_hdmi-rockchip.c
++++ b/drivers/gpu/drm/rockchip/dw_hdmi-rockchip.c
+@@ -2074,7 +2074,7 @@ static int dw_hdmi_encoder_late_register(struct drm_encoder *encoder)
+ 	 * HDMI debugfs directory (/sys/kernel/debug/dri/0/hdmiX/) to the
+ 	 * PHY driver via phy->debugfs.
+ 	 */
+-	if (!hdmi->phy->debugfs)
++	if (hdmi->phy && !hdmi->phy->debugfs)
+ 		hdmi->phy->debugfs = dw_hdmi_register_debugfs(hdmi->hdmi);
+ 	dw_hdmi_phy_init(hdmi->hdmi);
+ 

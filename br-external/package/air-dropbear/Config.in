@@ -1,0 +1,9 @@
+config BR2_PACKAGE_AIR_DROPBEAR
+	bool "air-dropbear"
+	depends on BR2_USE_MMU # fork()
+	help
+	  An SSH server for the air unit's app volume
+	  (/usrdata/fpv/air/bin): Buildroot's dropbear, statically
+	  linked. air/start.sh runs it when the image carries authorized
+	  keys (FPVOS_AIR_SSH_KEYS at build time) or a root password
+	  (FPVOS_AIR_ROOT_PASSWORD, root by default; empty for none).

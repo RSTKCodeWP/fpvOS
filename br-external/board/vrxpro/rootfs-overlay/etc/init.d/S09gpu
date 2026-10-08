@@ -1,0 +1,12 @@
+#!/bin/sh
+# Load the GPU driver: Panfrost, for Mesa's GL/EGL/GBM. Before anything uses
+# the GPU (kestrel-gnd, S70); the splash (S12) is plain DRM and needs no GPU.
+
+case "$1" in
+  start|"")
+    modprobe panfrost && echo "gpu: panfrost" || echo "gpu: loading panfrost failed"
+    ;;
+  stop) ;;
+  *) echo "usage: $0 {start|stop}"; exit 1 ;;
+esac
+exit 0

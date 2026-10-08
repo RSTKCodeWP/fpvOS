@@ -30,8 +30,15 @@ What each group is for:
   `ubiattach` + `mount -t ubifs`) also works but needs root and kernel modules.
   Only `--from-device` uses `ssh` instead of `ubi_reader`.
 
-Also: **~20 GB free disk** and a coffee's worth of time for the first Buildroot
-build (the cross-toolchain and all packages compile from source once).
+Also: **~30 GB free disk** and a long coffee's worth of time for the first
+Buildroot build (the cross-toolchain, the kernel, Mesa and the LLVM it builds
+with all compile from source once).
+
+The radio's host stack, the `ar-libre` package, is fetched from `AR_LIBRE_SITE`
+in `br-external/package/ar-libre/ar-libre.mk`. Until it is published there that
+is a server on the developer's own network: point the build at a copy you can
+reach with `make AR_LIBRE_SITE=<git url>`, or at a checkout with
+`AR_LIBRE_OVERRIDE_SRCDIR=<path>`.
 
 ## 1. Get the source
 
@@ -50,8 +57,8 @@ git submodule update --init --depth 1
 
 ## 2. Extract the vendor blobs
 
-fpvOS needs the AR8030 baseband stack, the Mali GPU driver, and the Rockchip
-media libraries. These are Caddx's own firmware — fpvOS never hosts them. By
+fpvOS needs the AR8030's firmware, Rockchip's `librga` and the stock boot
+images. These are Caddx's own firmware — fpvOS never hosts them. By
 default the script downloads the stock Caddx firmware from the official source,
 caches it under `~/.cache/fpvos`, and extracts:
 
@@ -155,6 +162,69 @@ The three-partition SD layout (a FAT fallback, the ext4 root, and a FIT boot
 partition) and the loader/init sequence it needs are all handled by
 `boot/mk-sd-image.sh`, using boot artifacts extracted from your own device.
 You don't need to assemble any of it by hand — `./build.sh` does it.
+
+## The air unit (work in progress)
+
+fpvOS is starting to build firmware for the Caddx Ascent Lite and Lite+ air units
+(Hi3516CV610) as well, as an image the Caddx PC tool flashes and can always
+reflash.
+
+```sh
+scripts/extract-vendor.py      # also saves the stock Ascent_H_Sky_*.img to vendor/stock/air/
+./build.sh air                 # -> output-air/images/Ascent_H_Sky_18_21_10.img
+./build.sh air kernel          # just the toolchain and the kernel
+boot/ascent-kernel-check.py    # compare our kernel with the stock one
+```
+
+**The image** is the stock one with a new app volume (`/usrdata`): U-Boot, env,
+kernel and rootfs stay byte-identical to stock. The app volume is the stock
+one plus `fpv/air/`, holding kestrel-air, the CV2004 and OS02K10 sensor drivers (they read their
+tuning from the stock air app, which stays, and kestrel-air picks the one that
+matches the camera),
+ar_libre's driver and library, and the HiSilicon MPI libraries kestrel-air
+links. A hook added to the stock
+`fpv_run_cx482.sh`, after everything the PC tool needs, runs `air/start.sh`,
+which starts kestrel-air where the stock script would start the stock air app.
+`touch /usrdata/fpv/air/disable` on the unit gives the stock app from the next
+boot.
+
+**Lite or Lite+:** one stock image serves both, and so does ours. The stock
+board script tells them apart by a voltage on the board (board type 482 is the
+Lite, 472 the Lite+), and `air/start.sh` follows it: the Lite+ gets its own radio
+chip firmware and config, as on stock, and kestrel-air is told the board type
+(`KA_BOARD_TYPE`) for what its air app does differently (power offsets, the
+high-power front end). Any other board type keeps the stock air app. [`boot/mkascentimg.py`](../boot/mkascentimg.py) packs it, and refuses an
+app volume that would lose the PC tool's updater.
+
+**SSH**: `air/start.sh` starts a statically linked dropbear on port 22, with
+the login `root` / `root` by default. `FPVOS_AIR_ROOT_PASSWORD` sets another
+password at build time, and an empty one (`FPVOS_AIR_ROOT_PASSWORD=
+./build.sh air`) turns password login off. `FPVOS_AIR_SSH_KEYS` adds public
+keys (`FPVOS_AIR_SSH_KEYS=~/.ssh/id_ed25519.pub ./build.sh air`); an image
+built with keys carries them, so do not share it. The stock rootfs is not
+changed: the password goes in a copy of `/etc/shadow` mounted over it at boot.
+The unit speaks network once its USB link is switched from the Caddx serial
+gadget to network, at 192.168.2.1, with a DHCP server for the computer. The
+host key is made on the first boot, in the app volume.
+
+The MPI libraries are proprietary and only exist prebuilt (the stock firmware
+links them statically into its own app); `hi3516cv610-sdk` fetches them and
+the two sensor drivers as one archive, pinned by commit and checked by hash.
+They are the same SDK build as the stock kernel modules the image keeps.
+
+**The kernel** in the image is the stock one, byte for byte. The build still
+builds a kernel, kernel.org's 5.10.221 (the stock version) with
+[`linux.defconfig`](../br-external/board/ascent-lite/linux.defconfig): it is
+what `arlink.ko` is built against and where the toolchain's headers come from,
+and nothing boots it. The config is HiSilicon's Hi3516CV610 SDK 1.0.2.0 one
+(the SDK's `hi3516cv610_defconfig` plus
+[`linux.fragment`](../br-external/board/ascent-lite/linux.fragment)) without
+the options only HiSilicon's tree has, so `arlink.ko` gets the stock modules'
+vermagic; built against either tree it is the same file, byte for byte. Two
+limits: HiSilicon adds fields to `struct mmc_host` after `detect_change`, so a
+driver that reads past them needs HiSilicon's tree, and so does a kernel of our
+own to boot (its NAND, MMC and USB drivers; the device tree, decompiled from
+the stock one, and `ascent-kernel-check.py` are for that).
 
 ## Troubleshooting
 

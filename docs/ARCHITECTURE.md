@@ -9,20 +9,21 @@ How fpvOS is put together, and where to look when you want to change something.
   │  kestrel-gnd            the fpvOS ground application       │
   │    video decode ─ HUD/OSD render ─ DVR ─ menu ─ settings   │
   └───────────┬───────────────────────────────┬───────────────┘
-              │ bb_client.h (our ABI decl)     │ GLES / DRM / MPP
+              │ bb_client.h (our ABI decl)     │ GLES / DRM / MPP / RGA
   ┌───────────▼───────────┐       ┌────────────▼──────────────┐
-  │ libar8030_client.so    │       │ Mali GPU · Rockchip VPU   │
-  │ + daemon (vendor)      │       │ (vendor)                  │
+  │ libar8030_client.so    │       │ Mesa (Panfrost) · MPP ·   │
+  │ + arlink.ko (ar-libre) │       │ librga (vendor)           │
   └───────────┬───────────┘       └───────────────────────────┘
-              │ AR8030 baseband (USB)
+              │ AR8030 baseband (USB), running Artosyn's firmware
         ┌─────▼─────┐
         │  air unit │  H.264/H.265 video + telemetry over the digital link
         └───────────┘
 ```
 
-Everything in the top box is fpvOS. Everything below the lines is proprietary
-and stays on the vendor's side — fpvOS talks to it through documented
-interfaces, never by including its code.
+kestrel, the radio's host stack (ar-libre), the kernel (see
+[KERNEL.md](KERNEL.md)) and the GL stack are open source and built from
+source. What is still proprietary is listed under the vendor boundary below;
+fpvOS talks to it through documented interfaces, never by including its code.
 
 ## kestrel — the application
 
@@ -51,13 +52,17 @@ to work on the display.
 
 ## The vendor boundary
 
-kestrel needs three proprietary pieces, none of which live in this repo:
+The image needs three proprietary pieces, none of which live in this repo:
 
-- **`libar8030_client.so` + `daemon`** — the AR8030 baseband stack. kestrel
-  declares only the ~15 ABI functions it calls in `bb_client.h`, documented
-  from observed behavior, and links the library at runtime. The CMake build
-  tolerates its absence so CI can build without it.
-- **Mali GPU driver** (`libmali`) — the GLES/EGL implementation.
+- **The AR8030's firmware** (`bb_demo_cx485_2PA.img`) and its baseband config
+  (`bb_config_gnd_pro.json`), which `arlink.ko` uploads to the radio chip at
+  power-on. The host side is fpvOS's own: the `ar-libre` package's `arlink.ko`
+  and its `libar8030_client.so`, a drop-in for Artosyn's library with no
+  daemon. kestrel declares only the ~15 ABI functions it calls in
+  `bb_client.h`, documented from observed behavior, and links the library at
+  runtime.
+- **The stock boot chain** — U-Boot, ARM Trusted Firmware and OP-TEE, adapted
+  for the SD card by `boot/mkbootchain.py` (see The image).
 - **`librga`** — Rockchip's 2D scaling/blitting library. kestrel's screen
   recorder blends each recorded frame with it (the decoded picture and the
   HUD, into the encoder's input); its headers are kept in kestrel-gnd's
@@ -71,7 +76,7 @@ pinned to the commit kestrel's decoder was validated against.
 but only as a documented fallback - `fpvos-vendor-libs.mk` explicitly skips
 installing it so the from-source build is never silently overwritten.
 
-`scripts/extract-vendor.py` pulls the three proprietary pieces (and that MPP
+`scripts/extract-vendor.py` pulls the proprietary pieces (and that MPP
 fallback) from firmware the user owns; they're merged into the image at
 build time by `br-external/board/vrxpro/post-build.sh`. See
 [`vendor/MANIFEST`](../vendor/MANIFEST).
@@ -86,10 +91,11 @@ Built by Buildroot (`br-external/`, a `BR2_EXTERNAL` tree) plus
 - **p2 `rootfs`** — the ext4 root
 - **p3 `boot`** — the FIT that U-Boot actually boots from
 
-The boot chain is the stock U-Boot and kernel, adapted for the SD card at
-build time by `boot/mkbootchain.py` (the `fpvos-bootchain` package) from the
-stock boot images in your own firmware download: three U-Boot hooks stubbed
-out so it can boot from SD, and a device tree that mounts the card.
+The boot chain is the stock U-Boot with the kernel built from source (see
+[KERNEL.md](KERNEL.md)), put together at build time by `boot/mkbootchain.py`
+(the `fpvos-bootchain` package) from the stock boot images in your own
+firmware download: three U-Boot hooks stubbed out so it can boot from SD, and
+the stock device tree, edited to mount the card and for the newer kernel.
 
 ## Reverse-engineering notes
 

@@ -5,6 +5,7 @@
 #   ./build.sh config       # just run the defconfig into ./buildroot
 #   ./build.sh kestrel      # rebuild only kestrel into the buildroot sysroot
 #   ./build.sh image        # just assemble the SD image (rootfs already built)
+#   ./build.sh air [config|kernel]   # the Ascent Lite and Lite+ air units, into ./output-air
 #
 # Prerequisites:
 #   - the Buildroot submodule is checked out (git clone --recurse-submodules,
@@ -30,7 +31,20 @@ need_vendor() {
         exit 1; }
 }
 
+# The air unit builds into its own output directory, so it never touches the goggle's.
+AIR_OUT="$ROOT/output-air"
+
 case "${1:-all}" in
+  air)
+    case "${2:-all}" in
+      config) make -C "$BR" BR2_EXTERNAL="$EXT" O="$AIR_OUT" ascentlite_defconfig ;;
+      # reconfigure, so a change to the config fragment is picked up
+      kernel) make -C "$BR" BR2_EXTERNAL="$EXT" O="$AIR_OUT" ascentlite_defconfig
+              make -C "$AIR_OUT" linux-reconfigure ;;
+      all)    make -C "$BR" BR2_EXTERNAL="$EXT" O="$AIR_OUT" ascentlite_defconfig
+              make -C "$AIR_OUT" ;;
+      *) echo "usage: $0 air [config|kernel|all]" >&2; exit 1 ;;
+    esac ;;
   config)
     make -C "$BR" BR2_EXTERNAL="$EXT" vrxpro_defconfig ;;
   kestrel)
