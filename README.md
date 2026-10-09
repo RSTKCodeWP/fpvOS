@@ -53,7 +53,7 @@ any locked firmware will ever bother to.
 ## What works today
 
 <div align="center">
-<img src="assets/idle-to-standby.webp" alt="The fpvOS idle screen as an aircraft links up" width="640">
+<img src="assets/idle-to-live.webp" alt="The fpvOS idle screen as an aircraft links up" width="640">
 <br><sub>Idle screen, then the warp into the live picture as the aircraft links up. <br>All clips here: the goggle's screen DVR, playing a simulated flight.</sub>
 </div>
 
@@ -95,7 +95,7 @@ goggle *can be*:
   the aircraft instead of sitting flat on the glass.
 
 <div align="center">
-<img src="assets/canopy-panels-arming.webp" alt="The canopy HUD as the quad arms and takes off" width="720">
+<img src="assets/arming-and-flying.webp" alt="The canopy HUD as the quad arms and takes off" width="720">
 <br><sub>Arming and flying with the reactive HUD.</sub>
 </div>
 
