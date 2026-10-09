@@ -54,7 +54,7 @@ any locked firmware will ever bother to.
 
 <div align="center">
 <img src="assets/idle-to-standby.webp" alt="The fpvOS idle screen as an aircraft links up" width="640">
-<br><sub>Idle screen, then the canopy HUD sweeping in as the aircraft links up — recorded on the goggle with screen DVR.</sub>
+<br><sub>Idle screen, then the warp into the live picture as the aircraft links up. <br>All clips here: the goggle's screen DVR, playing a simulated flight.</sub>
 </div>
 
 fpvOS flies today on the Caddx Ascent VRX Pro, with a stock Caddx Ascent air
@@ -76,11 +76,6 @@ unit or one running fpvOS's own air firmware ([what each gives you](#compatibili
 - **Themes** — five colour themes that re-hue the whole interface, switched live from the menu ([more below](#themes))
 - **WiFi AP** — share your live view with any spectator connected to the goggle's WiFi, play and manage your DVR recordings
 
-<div align="center">
-<img src="assets/canopy-panels-arming.webp" alt="The canopy HUD's left and right panels as the quad arms" width="720">
-<br><sub>The canopy's two panels as the quad arms: flight timer, cell voltage and sag, link and video tracks.</sub>
-</div>
-
 ## Why this is different
 
 Stock goggle firmware treats the display as a fixed overlay bolted onto a video
@@ -98,6 +93,12 @@ goggle *can be*:
   with the aircraft's movement — from the camera's own IMU, or the flight
   controller's gyro — with the reactivity dialable. The instrument moves with
   the aircraft instead of sitting flat on the glass.
+
+<div align="center">
+<img src="assets/canopy-panels-arming.webp" alt="The canopy HUD as the quad arms and takes off" width="720">
+<br><sub>Arming and flying with the reactive HUD.</sub>
+</div>
+
 - **DVR done right — two ways.** *Raw* recording muxes the exact H.264/H.265
   bitstream off the link straight to MP4: a pixel-perfect capture of what the
   air unit sent, no re-encode, no quality loss, near-zero CPU. *Screen*
@@ -114,6 +115,13 @@ goggle *can be*:
   app on the Ascent Lite and Lite+, on the same open radio stack. The camera
   pipeline, the encoder and the link are open code too, so the whole video
   link becomes something the community tunes end to end, not a sealed pair.
+
+<table align="center">
+<tr>
+<td align="center" width="50%"><img src="assets/gallery.webp" alt="The DVR gallery on the goggle" width="100%"><br><sub>Your recordings, played on the goggle.</sub></td>
+<td align="center" width="50%"><img src="assets/stats.webp" alt="The stats screen" width="100%"><br><sub>Latency, frame pacing and the link, live.</sub></td>
+</tr>
+</table>
 
 The goggle has always had the horsepower for this. It was just locked up.
 
