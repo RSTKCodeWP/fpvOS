@@ -102,6 +102,13 @@ start() {
     ch=$(pick_channel)
     [ -n "$ch" ] || ch=6
 
+    # For phones, which doze between frames many times a second (an iPhone
+    # 10-20 times while streaming): broadcast and multicast go to each
+    # station as unicast, which the AP holds for a dozing one and announces
+    # in its TIM (sent as broadcast at any time, a dozing phone missed DHCP
+    # offers and ARP: 169.254.x, no web page); beacons every 50 ms with a
+    # DTIM in each, so a dozing phone hears about its frames sooner; short
+    # guard interval (rtl8xxxu receives it at 20 MHz).
     cat > "$RUN/hostapd.conf" <<EOF
 interface=wlan0
 driver=nl80211
@@ -110,7 +117,11 @@ ssid=$SSID
 hw_mode=g
 channel=$ch
 ieee80211n=1
+ht_capab=[SHORT-GI-20]
 wmm_enabled=1
+beacon_int=50
+dtim_period=1
+multicast_to_unicast=1
 wpa=2
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP

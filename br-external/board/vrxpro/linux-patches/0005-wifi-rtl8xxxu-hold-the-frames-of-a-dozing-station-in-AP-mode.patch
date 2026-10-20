@@ -1,0 +1,162 @@
+From: Gee <gehee@users.noreply.github.com>
+Subject: [PATCH] wifi: rtl8xxxu: hold the frames of a dozing station in AP mode
+
+mac80211 buffers the frames it still holds for a station that goes to
+sleep, but the ones already handed to the chip (up to ~40, with 64 TX
+URBs) went out to it while it slept and were lost, reported acked as
+there is no TX status. TCP to a phone that dozes many times a second
+fell to 1-3 Mbit/s, with stalls.
+
+Implement sta_notify: set the station's bit in REG_MACID_SLEEP (the chip
+holds its frames) and mark it driver-buffered, so mac80211 sets its TIM
+bit and it wakes for them; clear both when it wakes. The chip's queues
+are shared, so held frames hold up the other stations' behind them: a
+station is let go after RTL8XXXU_PS_HOLD_MS (200 ms), which also covers
+one that never wakes (gone while dozing). The register is written from a
+work item (USB writes sleep).
+
+Goggle AP (RTL8188FU), Linux client in power save: TCP retransmissions
+at full speed 48 -> 2-7, live 17 Mbit/s stream without stalls; iPhone
+web view from 1.5-2 to 4-5 Mbit/s.
+
+---
+--- a/drivers/net/wireless/realtek/rtl8xxxu/core.c
++++ b/drivers/net/wireless/realtek/rtl8xxxu/core.c
+@@ -4561,6 +4561,71 @@
+ 	return 0;
+ }
+ 
++/*
++ * AP power save. mac80211 buffers the frames it still holds for a station
++ * that dozes, but the ones already handed to the chip (up to ~40 with
++ * RTL8XXXU_TX_URBS) went out to it while it slept and were lost - reported
++ * acked, as there is no TX status - and TCP to a phone that dozes many
++ * times a second fell to 1-3 Mbit/s. The chip's MACID_SLEEP bit holds them
++ * instead; the station is marked driver-buffered so mac80211 sets its TIM
++ * bit and it wakes for them. Its queues are shared, so held frames hold up
++ * the other stations' behind them: a station is let go after
++ * RTL8XXXU_PS_HOLD_MS (also one that never wakes, gone while dozing).
++ */
++#define RTL8XXXU_PS_HOLD_MS	200
++
++static void rtl8xxxu_ps_sleep_work(struct work_struct *work)
++{
++	struct rtl8xxxu_priv *priv =
++		container_of(work, struct rtl8xxxu_priv, ps_sleep_work.work);
++	unsigned long flags, map, hold = msecs_to_jiffies(RTL8XXXU_PS_HOLD_MS);
++	int id, tid;
++
++	spin_lock_irqsave(&priv->ps_lock, flags);
++	for_each_set_bit(id, &priv->ps_sleep_map, 32) {
++		if (!time_after(jiffies, priv->ps_sleep_since[id] + hold))
++			continue;
++		clear_bit(id, &priv->ps_sleep_map);
++		if (priv->ps_sleep_sta[id])
++			for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++)
++				ieee80211_sta_set_buffered(priv->ps_sleep_sta[id], tid, false);
++	}
++	map = priv->ps_sleep_map;
++	spin_unlock_irqrestore(&priv->ps_lock, flags);
++
++	rtl8xxxu_write32(priv, REG_MACID_SLEEP, (u32)map);
++	if (map)
++		schedule_delayed_work(&priv->ps_sleep_work, hold / 2 + 1);
++}
++
++static void rtl8xxxu_sta_notify(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
++				enum sta_notify_cmd cmd, struct ieee80211_sta *sta)
++{
++	struct rtl8xxxu_priv *priv = hw->priv;
++	u8 macid = rtl8xxxu_get_macid(priv, sta);
++	bool sleep = cmd == STA_NOTIFY_SLEEP;
++	unsigned long flags;
++	int tid;
++
++	if (vif->type != NL80211_IFTYPE_AP || macid >= 32)
++		return;
++
++	spin_lock_irqsave(&priv->ps_lock, flags);
++	if (sleep) {
++		set_bit(macid, &priv->ps_sleep_map);
++		priv->ps_sleep_since[macid] = jiffies;
++		priv->ps_sleep_sta[macid] = sta;
++	} else {
++		clear_bit(macid, &priv->ps_sleep_map);
++	}
++	for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++)
++		ieee80211_sta_set_buffered(sta, tid, sleep);
++	spin_unlock_irqrestore(&priv->ps_lock, flags);
++
++	/* The register write sleeps (USB): from the work item. */
++	mod_delayed_work(system_wq, &priv->ps_sleep_work, 0);
++}
++
+ static int rtl8xxxu_set_tim(struct ieee80211_hw *hw, struct ieee80211_sta *sta,
+ 			    bool set)
+ {
+@@ -7565,6 +7630,11 @@
+ 	cancel_work_sync(&priv->c2hcmd_work);
+ 	cancel_delayed_work_sync(&priv->ra_watchdog);
+ 	cancel_delayed_work_sync(&priv->update_beacon_work);
++	cancel_delayed_work_sync(&priv->ps_sleep_work);
++	if (priv->ps_sleep_map) {
++		priv->ps_sleep_map = 0;
++		rtl8xxxu_write32(priv, REG_MACID_SLEEP, 0);
++	}
+ 
+ 	rtl8xxxu_free_rx_resources(priv);
+ 	rtl8xxxu_free_tx_resources(priv);
+@@ -7615,8 +7685,20 @@
+ 	struct rtl8xxxu_priv *priv = hw->priv;
+ 
+ 	mutex_lock(&priv->sta_mutex);
+-	if (vif->type == NL80211_IFTYPE_AP)
++	if (vif->type == NL80211_IFTYPE_AP) {
++		if (sta_info->macid < 32) {
++			unsigned long flags;
++			bool held;
++
++			spin_lock_irqsave(&priv->ps_lock, flags);
++			held = test_and_clear_bit(sta_info->macid, &priv->ps_sleep_map);
++			priv->ps_sleep_sta[sta_info->macid] = NULL;
++			spin_unlock_irqrestore(&priv->ps_lock, flags);
++			if (held)
++				rtl8xxxu_write32(priv, REG_MACID_SLEEP, (u32)priv->ps_sleep_map);
++		}
+ 		rtl8xxxu_release_macid(priv, sta_info->macid);
++	}
+ 	mutex_unlock(&priv->sta_mutex);
+ 
+ 	return 0;
+@@ -7646,6 +7728,7 @@
+ 	.sta_statistics = rtl8xxxu_sta_statistics,
+ 	.get_antenna = rtl8xxxu_get_antenna,
+ 	.set_tim = rtl8xxxu_set_tim,
++	.sta_notify = rtl8xxxu_sta_notify,
+ 	.sta_add = rtl8xxxu_sta_add,
+ 	.sta_remove = rtl8xxxu_sta_remove,
+ };
+@@ -7861,6 +7944,8 @@
+ 	INIT_WORK(&priv->rx_urb_wq, rtl8xxxu_rx_urb_work);
+ 	INIT_DELAYED_WORK(&priv->ra_watchdog, rtl8xxxu_watchdog_callback);
+ 	INIT_DELAYED_WORK(&priv->update_beacon_work, rtl8xxxu_update_beacon_work_callback);
++	spin_lock_init(&priv->ps_lock);
++	INIT_DELAYED_WORK(&priv->ps_sleep_work, rtl8xxxu_ps_sleep_work);
+ 	skb_queue_head_init(&priv->c2hcmd_queue);
+ 
+ 	usb_set_intfdata(interface, hw);
+--- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu.h
++++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu.h
+@@ -1913,6 +1913,12 @@
+ 	struct work_struct c2hcmd_work;
+ 	struct sk_buff_head c2hcmd_queue;
+ 	struct delayed_work update_beacon_work;
++	/* AP power save: stations dozing, their frames held in the chip */
++	spinlock_t ps_lock;
++	unsigned long ps_sleep_map;		/* macids set in REG_MACID_SLEEP */
++	unsigned long ps_sleep_since[32];	/* jiffies */
++	struct ieee80211_sta *ps_sleep_sta[32];
++	struct delayed_work ps_sleep_work;
+ 	struct rtl8xxxu_btcoex bt_coex;
+ 	struct rtl8xxxu_ra_report ra_report;
+ 	struct rtl8xxxu_cfo_tracking cfo_tracking;

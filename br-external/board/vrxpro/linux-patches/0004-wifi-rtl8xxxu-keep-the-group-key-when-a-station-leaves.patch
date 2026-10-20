@@ -1,0 +1,31 @@
+From: Gee <gehee@users.noreply.github.com>
+Subject: [PATCH] wifi: rtl8xxxu: keep the AP's group key slot when a station leaves
+
+In AP mode the vif's hw_key_idx holds the group key's CAM slot (set_key
+records it for the group key only), and broadcast/multicast frames are
+sent with it. DISABLE_KEY reset it for every key, so a station leaving -
+its pairwise key removed - left the AP sending broadcast and multicast
+without the group key: DHCP offers and ARP requests no longer reached the
+stations still associated or joining after (an iPhone stayed on a
+169.254.x address). Reset it only when the group key itself goes.
+
+---
+--- a/drivers/net/wireless/realtek/rtl8xxxu/core.c
++++ b/drivers/net/wireless/realtek/rtl8xxxu/core.c
+@@ -7076,7 +7076,15 @@
+ 		val32 = CAM_CMD_POLLING | CAM_CMD_WRITE |
+ 			key->hw_key_idx << CAM_CMD_KEY_SHIFT;
+ 		rtl8xxxu_write32(priv, REG_CAM_CMD, val32);
+-		rtlvif->hw_key_idx = 0xff;
++		/*
++		 * hw_key_idx of the vif is the group key's slot (set for the
++		 * group key only, above): a station leaving, its pairwise key
++		 * removed, must not reset it, or broadcast and multicast go out
++		 * without the group key and DHCP offers and ARP no longer reach
++		 * the stations still there or joining after.
++		 */
++		if (!(key->flags & IEEE80211_KEY_FLAG_PAIRWISE))
++			rtlvif->hw_key_idx = 0xff;
+ 		clear_bit(key->hw_key_idx, priv->cam_map);
+ 		retval = 0;
+ 		break;
