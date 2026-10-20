@@ -52,6 +52,19 @@ else
 fi
 echo -n /usrdata/fpv/boot_ar8030 > /sys/module/firmware_class/parameters/path
 
+# Open8030, the open radio firmware, when open8030/always says so, with the
+# board's own stock radio config ($bb_cfg): both are copied to one directory for
+# the firmware loader. One image serves the Lite and the Lite+ - their radio
+# chips boot the same way (pins, pads, I/O domains), so their profiles are the
+# same. If the copy fails the boot stays on stock's firmware. Remove the flag to
+# go back.
+if [ -e $air/open8030/always ] && { [ "$board_type" = 472 ] || [ "$board_type" = 482 ]; } &&
+   [ -s $air/open8030/open8030-ap.img ]; then
+	mkdir -p /tmp/o8030 && cp $air/open8030/open8030-ap.img /usrdata/fpv/boot_ar8030/$bb_cfg /tmp/o8030/ &&
+		echo -n /tmp/o8030 > /sys/module/firmware_class/parameters/path && bb_fw=open8030-ap.img &&
+		echo "air: Open8030 radio firmware $(cat $air/open8030/version 2>/dev/null) ($bb_cfg)"
+fi
+
 # kestrel-air runs the Lite (482) and the Lite+ (472), as told apart by the
 # stock board script (fpv_run_by_type.sh); any other board keeps stock.
 export KA_BOARD_TYPE=$board_type

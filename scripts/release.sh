@@ -116,7 +116,8 @@ fi
 # go into the image (and into legal-info) under the release's name.
 for v in KESTREL_OVERRIDE_SRCDIR KESTREL_AIR_OVERRIDE_SRCDIR AR_LIBRE_OVERRIDE_SRCDIR \
          LINUX_OVERRIDE_SRCDIR ROCKCHIP_MPP_OVERRIDE_SRCDIR KESTREL_BRANCH \
-         KESTREL_AIR_VERSION KESTREL_AIR_SITE AR_LIBRE_VERSION AR_LIBRE_SITE; do
+         KESTREL_AIR_VERSION KESTREL_AIR_SITE AR_LIBRE_VERSION AR_LIBRE_SITE \
+         OPEN8030_OVERRIDE_SRCDIR OPEN8030_VERSION OPEN8030_SITE; do
     if [ -n "$(printenv "$v")" ]; then
         echo "$v is set in the environment - a release builds only what the tree pins; unset it" >&2
         exit 1

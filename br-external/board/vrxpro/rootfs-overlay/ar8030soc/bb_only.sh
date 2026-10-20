@@ -23,6 +23,15 @@
 # resets back into BL1, the resident driver re-probes it and re-uploads, and
 # the two spin at ~2 Hz flooding the console. See the guard after the wait loop.
 BB_PROFILE="${BB_PROFILE:-$(cat /usrdata/bb_profile 2>/dev/null || echo caddx)}"
+# Open8030, the open-source baseband firmware, with its own radio config, is the
+# default when its image is on the unit; stock's when kestrel-gnd's RADIO >
+# Radio Firmware says STOCK (ar8030_firmware: 0), or without the image.
+# kestrel-gnd decides the same way. BB_FW / BB_CFG in the environment still win.
+if [ -z "$BB_FW" ] && ! grep -q '^ar8030_firmware: 0$' /etc/kestrel/kestrel-gnd.yaml 2>/dev/null &&
+   [ -f /lib/firmware/open8030-vrxpro-usb.img ]; then
+    BB_FW=open8030-vrxpro-usb.img
+    BB_CFG="${BB_CFG:-bb_config_gnd_open8030.json}"
+fi
 case "$BB_PROFILE" in
     caddx) BB_CFG="${BB_CFG:-bb_config_gnd_pro.json}" ;;
     try)   BB_CFG="${BB_CFG:-bb_config_try.json}" ;;

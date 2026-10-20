@@ -1,0 +1,9 @@
+# From PyPI
+sha256  f71411d11ed9ed00847405c6a83600374c2e0cf8676ed5af5d8b572f92c4765a  west-1.5.0-py3-none-any.whl
+sha256  4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6  colorama-0.4.6-py2.py3-none-any.whl
+sha256  731dfa87338cca9f559d1fca2bdea37299116e3139b73f78ca90a543722d6651  pykwalify-1.8.0-py2.py3-none-any.whl
+sha256  148f6488d698b7a5eded5ea793a025308b25eca97208181b6a026037f391f701  ruamel.yaml-0.18.15-py3-none-any.whl
+sha256  a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427  python_dateutil-2.9.0.post0-py2.py3-none-any.whl
+sha256  4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274  six-1.17.0-py2.py3-none-any.whl
+sha256  a870ad254da1a8ca84b6a2905cac29d265f805acc57af304784962a2aa6508f6  jsonschema-4.17.3-py3-none-any.whl
+sha256  c55acc4733aad6560a7f5f818466631f07efc001fd023f34a6c203f8b6df0f0b  pyrsistent-0.20.0-py3-none-any.whl

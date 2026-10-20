@@ -4,6 +4,7 @@
 /vendor/rootfs
 /vendor/boot
 /vendor/stock
+/vendor/open8030
 
 # Buildroot's build output (the checkout itself is a submodule, tracked).
 /buildroot/output/
