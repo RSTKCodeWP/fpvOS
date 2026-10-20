@@ -1,8 +1,12 @@
 # Building fpvOS
 
-fpvOS builds a complete SD-card image for the goggle from source, with one
-manual step: extracting the proprietary vendor blobs from firmware you own.
-Nothing proprietary ships in this repo.
+fpvOS builds a complete SD-card image for the goggle, and an image for the
+Ascent air units, from source, with one manual step: extracting the proprietary
+vendor blobs from firmware you own. Nothing proprietary ships in this repo.
+
+> **Just want to fly it?** You don't need to build anything: the images are on
+> the [releases page](https://github.com/gehee/fpvOS/releases/latest), and
+> [INSTALL.md](INSTALL.md) takes you from download to flying.
 
 ## Dependencies
 
@@ -34,11 +38,12 @@ Also: **~30 GB free disk** and a long coffee's worth of time for the first
 Buildroot build (the cross-toolchain, the kernel, Mesa and the LLVM it builds
 with all compile from source once).
 
-The radio's host stack, the `ar-libre` package, is fetched from `AR_LIBRE_SITE`
-in `br-external/package/ar-libre/ar-libre.mk`. Until it is published there that
-is a server on the developer's own network: point the build at a copy you can
-reach with `make AR_LIBRE_SITE=<git url>`, or at a checkout with
-`AR_LIBRE_OVERRIDE_SRCDIR=<path>`.
+The applications and the radio's host stack are fetched from GitHub at the
+commits this tree pins: kestrel, `ar-libre` and, for the air image,
+`kestrel-air`. To build against a fork or a local checkout instead, set
+`KESTREL_SITE`, `AR_LIBRE_SITE` or `KESTREL_AIR_SITE` to another git URL, or
+`AR_LIBRE_OVERRIDE_SRCDIR=<path>` (and the matching `*_OVERRIDE_SRCDIR`) to a
+checkout.
 
 ## 1. Get the source
 
@@ -123,6 +128,36 @@ U-Boot functions stubbed out so it can boot from SD, and a device tree whose
 kernel command line mounts the card. It refuses a U-Boot build it does not
 know, rather than patch it blind.
 
+### Open8030, the open radio firmware (optional)
+
+Both images can carry [Open8030](https://github.com/gehee/Open8030), an
+open-source firmware for the AR8030 radio chip, next to stock's. It is built
+from source (Zephyr, with the Zephyr SDK's RISC-V compiler; Buildroot downloads
+both) with board profiles reverse engineered from the stock radio firmware,
+which the `open8030-profiles` package downloads (one archive, checked by its
+hash and each file by the archive's SHA256SUMS). To build with a local copy
+instead - new or changed profiles, from an Open8030 checkout's `.local/`:
+
+```sh
+scripts/open8030-private.sh ../Open8030   # -> vendor/open8030 (git-ignored)
+make OPEN8030_PRIVATE_DIR=$PWD/vendor/open8030 ...
+```
+
+The images then carry:
+
+- the goggle gets `/lib/firmware/open8030-vrxpro-usb.img` and its radio config,
+  and runs it by default; kestrel-gnd's RADIO > VRX Radio Firmware switches
+  between it and stock's at the next radio start (the goggle's radio only, not
+  the air unit's).
+- the air unit gets `/usrdata/fpv/air/open8030/open8030-ap.img`. A Lite or Lite+
+  uses it when `/usrdata/fpv/air/open8030/always` exists, which the air image
+  ships (`BR2_PACKAGE_OPEN8030_AIR_DEFAULT=y` in `ascentlite_defconfig`); remove
+  the file over ssh to go back to stock's. Both ends must run the same firmware
+  family: an Open8030 air unit needs an Open8030 goggle.
+
+`OPEN8030_OVERRIDE_SRCDIR` (in `local.mk`) builds a local Open8030 checkout
+instead of the pinned commit.
+
 ## 3. Build
 
 ```sh
@@ -135,6 +170,7 @@ Sub-commands for iterating:
 ./build.sh config     # (re)generate the Buildroot .config from the defconfig
 ./build.sh kestrel    # rebuild only kestrel into the sysroot
 ./build.sh image      # re-assemble the image (rootfs already built)
+./build.sh air        # the air unit's image, into output-air/ (see below)
 ```
 
 The result, in the repo root, is the image twice:
@@ -163,11 +199,12 @@ partition) and the loader/init sequence it needs are all handled by
 `boot/mk-sd-image.sh`, using boot artifacts extracted from your own device.
 You don't need to assemble any of it by hand — `./build.sh` does it.
 
-## The air unit (work in progress)
+## The air unit
 
-fpvOS is starting to build firmware for the Caddx Ascent Lite and Lite+ air units
-(Hi3516CV610) as well, as an image the Caddx PC tool flashes and can always
-reflash.
+fpvOS also builds firmware for the Caddx Ascent Lite and Lite+ air units
+(Hi3516CV610), as an image the Caddx PC tool or the
+[fpvOS Flasher](https://gehee.github.io/fpvOS_flasher/) flashes, and can always
+reflash with Caddx's own update.
 
 ```sh
 scripts/extract-vendor.py      # also saves the stock Ascent_H_Sky_*.img to vendor/stock/air/

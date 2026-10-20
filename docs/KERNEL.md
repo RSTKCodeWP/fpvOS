@@ -43,6 +43,8 @@ The stock config carries forward nearly whole; `linux.fragment` then:
 | `0001-drm-rockchip-dw_hdmi-no-external-PHY-in-late_register` | RK3568 drives HDMI with the PHY inside the DesignWare controller, so there is no external PHY, and `late_register` dereferenced it unconditionally: a panic while registering the display |
 | `0002-misc-rpdzkj-board` | the board driver: see below |
 | `0003-video-rockchip-mpp-rkvdec2-stream-mode` | the decoder starts a picture on its first slice and takes the rest as it arrives: see Stream decode |
+| `0004-wifi-rtl8xxxu-keep-the-group-key-when-a-station-leaves` | the onboard WiFi as an access point: a phone leaving took the group key with it, and the others lost their broadcast traffic |
+| `0005-wifi-rtl8xxxu-hold-the-frames-of-a-dozing-station-in-AP-mode` | a phone in power save (most of them, most of the time) gets its frames held until it wakes, instead of dropped |
 
 ## Stream decode
 
@@ -52,7 +54,11 @@ and go on with each next one as it arrives (`MPP_CMD_STREAM_APPEND`), and
 tells user space when the first slice's rows are decoded (`MPP_STREAM_WAIT`).
 The MPP side is `rockchip-mpp/0002-h265d-decode-a-picture-as-its-slices-arrive`
 (`MPP_PACKET_FLAG_STREAM_START`, `MPP_DEC_SET_STREAM_APPEND`,
-`MPP_DEC_GET_STREAM_TOP`; the stream buffer is sized for a whole key picture).
+`MPP_DEC_GET_STREAM_TOP`; the stream buffer is sized for a whole key picture),
+with `0001-h265d-refuse-a-slice-whose-PPS-names-a-missing-SPS` (a damaged
+stream no longer reaches the decoder with parameter sets it does not have) and
+`0003-h265d-stream-each-appended-part-on-a-page-of-its-own` (each appended
+part on its own page, so the hardware never reads across a boundary).
 
 - `rk_vcodec.rkvdec2_stream` (default 1, read at probe) turns the RK3568's
   link mode off, which a paused picture cannot work with: every decode runs

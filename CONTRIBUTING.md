@@ -58,8 +58,8 @@ cat buildroot/output/target/usr/bin/kestrel-gnd |
     /etc/init.d/S70kestrel start'
 ```
 
-The log is `/var/log/kestrel-gnd.log`. No aircraft handy? `kestrel-gnd --demo=1`
-(or `demo_mode` in the settings) drives the whole HUD from a simulated flight.
+The log is `/var/log/kestrel-gnd.log`. An air unit on the bench, powered, is
+enough to get a picture and live telemetry for most display work.
 
 ## Good places to start
 
@@ -67,7 +67,8 @@ The log is `/var/log/kestrel-gnd.log`. No aircraft handy? `kestrel-gnd --demo=1`
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the documented baseband ABI
   in kestrel-gnd (`artosyn/bb_client.h`) are your map.
 - **HUD & UX** — it's all in the [kestrel repo](https://github.com/gehee/kestrel-gnd)
-  (`hud_*.cpp`, `osd.cpp`). Demo mode makes this a tight loop.
+  (`hud_*.cpp`, `osd.cpp`). A powered air unit on the bench makes this a
+  tight loop.
 - **Video pipeline** — latency and the decode path (`vdec/` in the kestrel repo).
 - **Docs** — clear docs for building, flashing, and the HUD save the next
   person days. Add to `docs/`.
@@ -77,8 +78,8 @@ The log is `/var/log/kestrel-gnd.log`. No aircraft handy? `kestrel-gnd --demo=1`
 - Open an **issue** to discuss anything non-trivial before a big PR — saves
   everyone rework.
 - Keep PRs focused; one change per PR.
-- Say how you tested. "Flies on my VRX Pro" / "verified in `--demo`" / "built
-  clean" all help. We can't merge display changes we can't see working.
+- Say how you tested. "Flies on my VRX Pro" / "bench-tested with an air unit" /
+  "built clean" all help. We can't merge display changes we can't see working.
 - Match the surrounding code style. The HUD code in particular leans on
   comments that explain *why* a number is what it is — keep that up; those
   numbers were expensive to find.

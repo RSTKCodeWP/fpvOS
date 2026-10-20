@@ -14,7 +14,7 @@ How fpvOS is put together, and where to look when you want to change something.
   │ libar8030_client.so    │       │ Mesa (Panfrost) · MPP ·   │
   │ + arlink.ko (ar-libre) │       │ librga (vendor)           │
   └───────────┬───────────┘       └───────────────────────────┘
-              │ AR8030 baseband (USB), running Artosyn's firmware
+              │ AR8030 baseband (USB), running Open8030 (or Artosyn's firmware)
         ┌─────▼─────┐
         │  air unit │  H.264/H.265 video + telemetry over the digital link
         └───────────┘
@@ -41,26 +41,27 @@ to that repo. One process, `kestrel-gnd`, laid out roughly as:
 | HUD | `hud_canopy.cpp`, `hud_lock.cpp`, `hud_theme.cpp`, `osd.cpp` | The canopy HUD, signal-lock/idle animations, the whole on-screen display |
 | Menu | `hud_menu.cpp` | On-goggle settings UI, driven from the goggle buttons |
 | Betaflight OSD | `msp_osd.cpp`, `betaflight_glyphs.cpp` | MSP-DisplayPort overlay from the flight controller |
-| DVR | `dvr.cpp` | Records the FPV stream to storage |
+| DVR | `dvr.cpp`, `screen_tap.hpp`, `webstream.cpp` | Records the FPV stream (a lost picture replaced by a copy, `utils/hevc_repair.cpp`), or the screen (video and HUD rebuilt by the RGA, H.265 at up to 100 fps); the WiFi spectator page gets the same screen, encoded in H.264 |
 | Settings | `settings.cpp` | `/etc/kestrel/kestrel-gnd.yaml` |
 
 The HUD has four overlays, picked in the menu or with `hud_overlay` in the
 settings: **OFF** (only the Betaflight OSD), **CANOPY** (the default), **ARENA**
-and **ARENA FULL** (ARENA plus its diagnostic rows). `--demo=1` drives the whole
-HUD from a simulated flight with no aircraft attached, which is the fastest way
-to work on the display.
+and **ARENA FULL** (ARENA plus its diagnostic rows).
 
 ## The vendor boundary
 
 The image needs three proprietary pieces, none of which live in this repo:
 
-- **The AR8030's firmware** (`bb_demo_cx485_2PA.img`) and its baseband config
-  (`bb_config_gnd_pro.json`), which `arlink.ko` uploads to the radio chip at
-  power-on. The host side is fpvOS's own: the `ar-libre` package's `arlink.ko`
-  and its `libar8030_client.so`, a drop-in for Artosyn's library with no
-  daemon. kestrel declares only the ~15 ABI functions it calls in
-  `bb_client.h`, documented from observed behavior, and links the library at
-  runtime.
+- **The AR8030's stock firmware** (`bb_demo_cx485_2PA.img`) and its baseband
+  config (`bb_config_gnd_pro.json`). By default the radio runs
+  [Open8030](https://github.com/gehee/Open8030) instead, built from source by
+  the `open8030` package; the stock files are what `arlink.ko` uploads when
+  **RADIO › VRX Radio Firmware** says STOCK. Open8030's board profiles come
+  from the `open8030-profiles` package (see [BUILD.md](BUILD.md)). The host side is fpvOS's own: the `ar-libre`
+  package's `arlink.ko` and its `libar8030_client.so`, a drop-in for Artosyn's
+  library with no daemon. kestrel declares only the ~15 ABI functions it calls
+  in `bb_client.h`, documented from observed behavior, and links the library
+  at runtime.
 - **The stock boot chain** — U-Boot, ARM Trusted Firmware and OP-TEE, adapted
   for the SD card by `boot/mkbootchain.py` (see The image).
 - **`librga`** — Rockchip's 2D scaling/blitting library. kestrel's screen
