@@ -10,9 +10,9 @@
 # SHA256SUMS. Only what kestrel-air loads: its NEEDED libraries, whose own
 # NEEDED add nothing but libc, and libsns_cv2004.so / libsns_os02k10.so, one of
 # which it dlopen()s for the camera it finds.
-HI3516CV610_SDK_VERSION = 2063a02
+HI3516CV610_SDK_VERSION = 8aa59e0
 HI3516CV610_SDK_SOURCE = ascent-lite-libs-$(HI3516CV610_SDK_VERSION).tar.gz
-HI3516CV610_SDK_SITE = https://gist.githubusercontent.com/gehee/faf2c7f263052e51ad992b4048576f8c/raw/d8d54f03b6ee7efd66a4565527f3514a40f2533d
+HI3516CV610_SDK_SITE = https://gist.githubusercontent.com/gehee/faf2c7f263052e51ad992b4048576f8c/raw/8027553bacdf51a7ea9a509fdfa7034e2d22549c
 HI3516CV610_SDK_LICENSE = PROPRIETARY (MPI libraries), MIT (sensor drivers)
 HI3516CV610_SDK_LICENSE_FILES = README.md BUILD-INFO
 HI3516CV610_SDK_REDISTRIBUTE = NO

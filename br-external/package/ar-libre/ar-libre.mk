@@ -16,7 +16,7 @@
 # fixed the air-side link drops and the goggle's radio recovery are both in it.
 AR_LIBRE_SITE ?= https://github.com/gehee/ar_libre.git
 AR_LIBRE_SITE_METHOD = git
-AR_LIBRE_VERSION ?= 61dd6ede09721c842cea23f7b92a835b338ee329
+AR_LIBRE_VERSION ?= 5c66a0f7363e5a576a8f9fce3667805b7e39d426
 AR_LIBRE_LICENSE = GPL-2.0-or-later
 AR_LIBRE_LICENSE_FILES = LICENSE
 AR_LIBRE_INSTALL_STAGING = YES
