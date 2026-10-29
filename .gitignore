@@ -17,6 +17,10 @@
 /sdcard.img.xz
 *.o
 *.so
+!/rstk/modules/
+!/rstk/modules/**/
+!/rstk/modules/**/*.so
+!/rstk/modules/**/*.ko
 build/
 xbuild/
 __pycache__/

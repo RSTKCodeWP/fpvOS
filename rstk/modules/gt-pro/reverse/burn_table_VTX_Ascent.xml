@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="GB2312" ?>
+<Partition_Info ProgrammerFile="">
+<Part Sel="1" PartitionName="boot" FlashType="nand" FileSystem="none" Start="0" Length="512K" SelectFile="C:\VTX_Ascent_Recovery\Firmware\boot.bin"/>
+<Part Sel="1" PartitionName="env" FlashType="nand" FileSystem="none" Start="512K" Length="512K" SelectFile="C:\VTX_Ascent_Recovery\Firmware\env.bin"/>
+<Part Sel="1" PartitionName="sel" FlashType="nand" FileSystem="none" Start="1M" Length="1M" SelectFile="C:\VTX_Ascent_Recovery\Firmware\sel.bin"/>
+<Part Sel="1" PartitionName="kernel0" FlashType="nand" FileSystem="none" Start="2M" Length="4M" SelectFile="C:\VTX_Ascent_Recovery\Firmware\kernel.bin"/>
+<Part Sel="1" PartitionName="kernel1" FlashType="nand" FileSystem="none" Start="6M" Length="4M" SelectFile="C:\VTX_Ascent_Recovery\Firmware\kernel.bin"/>
+<Part Sel="1" PartitionName="factory" FlashType="nand" FileSystem="none" Start="10M" Length="6M" SelectFile="C:\VTX_Ascent_Recovery\Firmware\factory.bin"/>
+<Part Sel="1" PartitionName="rootfs0" FlashType="nand" FileSystem="none" Start="16M" Length="16M" SelectFile="C:\VTX_Ascent_Recovery\Firmware\rootfs.bin"/>
+<Part Sel="1" PartitionName="rootfs1" FlashType="nand" FileSystem="none" Start="32M" Length="16M" SelectFile="C:\VTX_Ascent_Recovery\Firmware\rootfs.bin"/>
+<Part Sel="1" PartitionName="usrdata0" FlashType="nand" FileSystem="none" Start="48M" Length="32M" SelectFile="C:\VTX_Ascent_Recovery\Firmware\usrdata.bin"/>
+<Part Sel="1" PartitionName="usrdata1" FlashType="nand" FileSystem="none" Start="80M" Length="32M" SelectFile="C:\VTX_Ascent_Recovery\Firmware\usrdata.bin"/>
+</Partition_Info>

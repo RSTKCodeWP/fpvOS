@@ -1,0 +1,32 @@
+[Version]
+Signature="$Windows NT$"
+Class=USBDevice
+ClassGuid={88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider=%ProviderName%
+CatalogFile=vtx_libusb_winusb.cat
+DriverVer=07/15/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTamd64
+
+[Standard.NTamd64]
+%DeviceName%=USB_Install,USB\VID_3361&PID_D001
+
+[USB_Install]
+Include=winusb.inf
+Needs=WINUSB.NT
+
+[USB_Install.Services]
+Include=winusb.inf
+Needs=WINUSB.NT.Services
+
+[USB_Install.HW]
+AddReg=DeviceInterfaceGUIDs
+
+[DeviceInterfaceGUIDs]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{8F9F2F7B-B3B1-4C35-9F39-3361D0010001}"
+
+[Strings]
+ProviderName="fizik"
+ManufacturerName="VTX"
+DeviceName="VTX BootROM libusb (WinUSB)"
