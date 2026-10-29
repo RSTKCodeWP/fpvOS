@@ -1,0 +1,10 @@
+#!/bin/sh
+
+cd /sys/kernel/config/usb_gadget/acm/
+echo > UDC
+rm configs/c.1/acm.0
+rmdir configs/c.1/strings/0x409
+rmdir configs/c.1
+rmdir strings/0x409
+cd /root/
+umount /sys/kernel/config/

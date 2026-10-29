@@ -1,0 +1,44 @@
+GT Pro VTX — dev shell without patching ar_ldyhs_sky
+====================================================
+
+Goal: edit scripts in /usrdata, reboot, test. Roll back by restoring stock usrdata.
+
+PRIMARY: recovery burn (recommended)
+------------------------------------
+  1_INSTALL_DRIVER.cmd   (once, admin)
+  2_RESET_PASSWORD.cmd   (LINK + USB when WAITING)
+
+After normal boot:
+  telnet <vtx-ip>     login root / ascent
+
+Factory/sel are NOT flashed; only boot/env/kernel/rootfs/usrdata.
+
+Rollback to stock login
+-----------------------
+  Reflash Firmware/usrdata.bin.stock.bak renamed to usrdata.bin via burn, OR
+  on live unit:  touch /usrdata/fpv/dev/DISABLE_ROOT_HOOK && reboot
+  (disables hook; stock empty root password behavior returns if shadow was never written)
+
+Daily dev loop (after root works)
+---------------------------------
+  1. telnet root@<ip>
+  2. Put experiments under /usrdata/fpv/dev/  (writable UBIFS)
+  3. Optional hook call from fpv_run (only via rebuilt usrdata — never OTRA-write fpv_run)
+  4. reboot; watch /tmp/air.log and your logs in /usrdata/fpv/dev/
+
+Do NOT
+------
+  - OTRA-upload fpv_run_cx4861.sh, config_serial.sh, config_ether.sh (truncates → brick risk)
+  - remount,rw and replace binaries under /usr or /usrdata/fpv/*.so without backup
+  - run multiple OTRA sessions per boot (ACM wedges)
+
+OTRA (live/)
+------------
+Emergency only if burn already done but hook file missing from usrdata.
+Prefer burn with updated Firmware/usrdata.bin after hook changes.
+
+Rebuilding usrdata.bin after editing hooks/
+-------------------------------------------
+Prebuilt image hash is in README_PASSWORD.txt. Changing hooks requires repacking
+UBI/UBIFS (WSL + ubireader_extract / mkfs.ubifs). Until repack is automated,
+use burn with the supplied usrdata.bin or ask for tools/repack_usrdata.sh update.

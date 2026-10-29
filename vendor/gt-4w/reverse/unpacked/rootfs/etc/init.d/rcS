@@ -1,0 +1,37 @@
+#! /bin/sh
+
+flagfile="/factory/sirius-clean-system-flag"
+
+/bin/mount -a
+
+sysctl -p
+
+for initscript in /etc/init.d/S[0-9][0-9]*
+do
+	if [ -x $initscript ] ;
+	then
+		echo "[RCS]: $initscript"
+		$initscript
+	fi
+done
+
+ar_bsel check_cmdline
+/etc/init.d/mount_fs.sh
+mount -t tmpfs tmpfs /tmp
+
+# if flagfile is exsit, then enter clean system
+if [ $flagfile ] && [ -e $flagfile ]; then
+	rm $flagfile
+	sync
+	
+	/etc/init.d/start_clean_system.sh
+	# don't change the log, QA auto-upgrade depends on it
+	echo "STARTUP clean system COMPLETE"
+
+	exit
+elif [ -e "/usrdata/fpv/fpv_run.sh" ]; then
+     echo "start nomal system..."
+    /usrdata/fpv/fpv_run.sh &
+fi
+
+

@@ -1,0 +1,77 @@
+Live readout from the Ascent GT Pro VTX on COM12 (USB 1d76:0101), 2026-10-29.
+Kernel 5.10.221 armv7l. Board type 4861. Stock image 18.21.7.
+air 2026.10.beta4-gt-open8030
+kestrel-air 2026.10.beta3-dirty
+ar-libre 61dd6ede09721c842cea23f7b92a835b338ee329
+
+Sensor probe from /tmp/air.log:
+  i2c-0 0x36 cv2004, os02k10, os02h10, os04j10: no ack
+  i2c-0 0x48 id 0x0/1 = 52 80: ps5280
+  xclk 27 MHz, mipi dev 0, 2 lanes
+  libsns_ps5280.so maps stock CMOS at 0x267be4 (2-lane)
+  tuning file: /usrdata/fpv/tunning/cam_ps5280_60fps_xg1_night.bin
+  capture 1920x1080@60
+On-device libsns_ps5280.so is 12800 bytes, dated Oct 27 2026.
+
+NAND (cat /proc/mtd), erase size 128 KiB:
+  mtd0 boot      512 KiB
+  mtd1 env       512 KiB
+  mtd2 sel         1 MiB
+  mtd3 kernel0     4 MiB
+  mtd4 kernel1     4 MiB
+  mtd5 factory     6 MiB   mounted /factory (ubi5_0), 144 KiB used
+  mtd6 rootfs0    16 MiB   mounted / read-only (ubi0)
+  mtd7 rootfs1    16 MiB
+  mtd8 usrdata0   32 MiB
+  mtd9 usrdata1   32 MiB   mounted /usrdata (ubi9_0), 8892 KiB used
+
+/factory/fpv_config.json
+{
+    "ev_x10": 0,
+    "scenes": 2,
+    "sat": 0,
+    "contrast": 0,
+    "sharpness": 0,
+    "cct": 0,
+    "angle": 0,
+    "ratio": 1,
+    "ch0_width": 1920,
+    "ch0_height": 1080,
+    "ch0_fps": 60,
+    "ch0_focus_en": 0,
+    "ch1_width": 1920,
+    "ch1_height": 1080,
+    "ch1_fps": 60,
+    "rec_dev": 3,
+    "rec_loop_dev": 3,
+    "rec_auto_dev": 1,
+    "cam_exp": 0,
+    "cam_max_iso": 0,
+    "cam_3dnr_strength": 0,
+    "rec_eis_en": 0,
+    "rec_color_mode": 0,
+    "rec_sharpness": 5,
+    "rec_sat": 5,
+    "rec_enc_format": 0,
+    "rec_pack_durtion": 5,
+    "cam_2dnr_strength": 1,
+    "cam_max_iso_mode": 0,
+    "cam_anti_flicker_en": 0,
+    "bb_power_mw": 100,
+    "sys_standby_mode": 0,
+    "video_strategy": 2
+}
+
+/factory/mp_cfg.json serial number: 0083
+/factory/user_cfg.json bb_mac_addr_0: e6:94:0b:2b
+/usrdata/fpv/user_cfg.json bb_mac_addr_0: a4:1d:36:9d
+
+PS5280 tuning blobs present under /usrdata/fpv/tunning (not copied):
+  cam_ps5280_50fps_xg1..xg4 _day and _night
+  cam_ps5280_60fps_xg1..xg4 _day and _night
+
+Stock userspace that stays on the unit and is not in this repo:
+  /usrdata/fpv/ar_ldyhs_sky (2478136 bytes, the CMOS driver is linked inside it)
+  /usrdata/fpv/ko_cv610_20s/*.ko
+  /usrdata/fpv/air/lib/libss_mpi*.so and the other HiSilicon MPI libraries
+  /usrdata/fpv/air/lib/libsns_cv2004.so and libsns_os02k10.so

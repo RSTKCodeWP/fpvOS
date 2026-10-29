@@ -17,6 +17,10 @@
 /sdcard.img.xz
 *.o
 *.so
+!/vendor/gt-4w/
+!/vendor/gt-4w/**/
+!/vendor/gt-4w/**/*.so
+!/vendor/gt-4w/**/*.ko
 build/
 xbuild/
 __pycache__/
