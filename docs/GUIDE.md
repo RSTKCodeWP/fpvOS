@@ -131,7 +131,7 @@ applies the setting, then asks *Keep it?*. If you do nothing it goes back after
 | | Focus Mode | On · Off |
 | **RADIO** | Bind | only while unlinked |
 | | Channel | opens the [channel page](#channel-power-and-where-you-fly) |
-| | TX Power | Lite: 25 mW · 100 mW · 100 mW AUTO. Lite+: 25 · 100 · 200 · 500 mW · 500 mW AUTO. It reads `--` until the air unit has said which it is |
+| | TX Power | Lite: 25 mW · 100 mW · 100 mW AUTO. Lite+: 25 · 100 · 200 · 500 mW · 500 mW AUTO. GT, project 5 or 8: those, then 1W · 1W AUTO · 2W · 2W AUTO · 4W · 4W AUTO · 5W · 5W AUTO. The goggle uplink stays at or below 27 dBm; the air unit is sent the mW. It reads `--` until the air unit has said which it is |
 | | Max MCS | AUTO · MCS 0 to 11: the highest MCS the goggle's radio may receive at (shown while it runs Open8030) |
 | | VRX Radio Firmware | OPEN8030 · STOCK: the firmware on **this goggle's** radio chip, not the air unit's. OK applies it: the radio restarts and the picture is back in about 10 s |
 | | Auto Standby | ON · OFF |
